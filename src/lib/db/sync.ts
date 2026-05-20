@@ -213,7 +213,7 @@ export async function syncProposals(): Promise<SyncResult> {
               estimated_delivery: m.estimated_delivery,
               focus: m.focus,
               acceptance: m.acceptance,
-              status: status === 'approved' ? (m.number === 1 ? 'delivered' : 'planned') : 'planned',
+              status: merged.status === 'approved' ? (m.number === 1 ? 'delivered' : 'planned') : 'planned',
             }).run();
             milestones_synced++;
           }
