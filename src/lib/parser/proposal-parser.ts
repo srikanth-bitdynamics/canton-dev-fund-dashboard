@@ -30,11 +30,151 @@ const SIG_CATEGORIES = new Set([
 export function parseProposal(filename: string, content: string): ParsedProposal {
   const warnings: string[] = [];
 
-  // Title — first H1 line
-  const titleMatch = content.match(/^#\s+(.+?)$/m);
-  const title = titleMatch
-    ? titleMatch[1].replace(/^Development Fund Proposal:\s*/i, '').trim()
-    : filename.replace('.md', '');
+  // Title extraction strategy:
+  //   1. Find the first H1 (`# X`)
+  //   2. Unwrap markdown bold; handle the "Development Fund Proposal[:...]" prefix smartly:
+  //      - "Development Fund Proposal: CCTools" → "CCTools" (colon = subtitle separator)
+  //      - "Development Fund Proposal for Maintenance of X" → keep full (natural continuation)
+  //      - "Development Fund Proposal" (exact) → look for the next informative heading
+  //   3. Skip generic section headers (Abstract, Motivation, Specification, ...) when picking
+  //      the next heading as fallback
+  //   4. Final fallback: prettify the filename slug
+  const genericHeads = new Set([
+    'development fund proposal', 'abstract', 'executive summary', 'motivation',
+    'introduction', 'overview', 'summary', 'proposal', 'specification',
+    'objective', 'objectives', 'background', 'context', 'funding',
+    'implementation', 'rationale', 'acceptance criteria', 'milestones',
+    'design', 'goals', 'scope', 'milestones and deliverables',
+    'milestones, deliverables, and acceptance criteria',
+    'milestones deliverables and acceptance criteria',
+    '1. objective', '2. objective', 'co-marketing',
+    'team', 'team background', 'assumptions', 'maintenance',
+    'design alternatives considered', 'note on performance targets',
+    'the opportunity', 'the problem', 'why', 'strategic fit',
+    'implementation mechanics', 'backward compatibility',
+    'current platform (already live)', 'current platform',
+    'payment schedule', 'early completion bonus', 'volatility',
+  ]);
+
+  const unwrap = (raw: string): string =>
+    raw
+      .replace(/^#+\s+/, '')
+      .replace(/\*\*(.+?)\*\*/g, '$1')
+      .replace(/\*([^*]+)\*/g, '$1')
+      .replace(/\\\s*$/, '')
+      .replace(/^\d+\.\s+/, '')                   // strip "1. ", "2.3 ", etc.
+      .replace(/^\d+(?:\.\d+)*\s+/, '')
+      .trim();
+
+  const isGeneric = (s: string): boolean => {
+    const lower = s.toLowerCase();
+    if (genericHeads.has(lower)) return true;
+    // Section-number-prefixed headers like "2.1 Mempool", "3.4 Foo"
+    if (/^\d+(?:\.\d+)*\s/.test(s)) return true;
+    return false;
+  };
+
+  const stripDFPPrefix = (s: string): string => {
+    // "Development Fund Proposal: X" or "Development Fund Proposal — X"  → "X"
+    const m = s.match(/^Development\s+Fund\s+Proposal[:\-—]\s*(.+)$/i);
+    if (m) return m[1].trim();
+    return s;
+  };
+
+  // Strategy:
+  // 1. Try the first non-empty line — if it's a bold-only line like **CIP-0100 X**,
+  //    that's the title (some proposals use bold body text at top instead of an H1).
+  // 2. Else look at all H1/H2 headings in the file.
+  //    - Prefer the first one whose stripped form is non-generic.
+  //    - Always strip "Development Fund Proposal:" / "Development Fund Proposal —" prefix.
+  // 3. Filename fallback (cleaned).
+  let title = '';
+  const firstLines = content.split('\n').slice(0, 6);
+  for (const line of firstLines) {
+    const t = line.trim();
+    if (!t) continue;
+    if (t.startsWith('#')) break; // headings handled below
+    const boldMatch = t.match(/^\*\*(.+?)\*\*$/);
+    if (boldMatch) {
+      const candidate = boldMatch[1].trim();
+      if (!isGeneric(candidate) && candidate.length > 3) {
+        title = candidate;
+        break;
+      }
+    }
+  }
+
+  if (!title) {
+    // Only consider headings near the top of the file. A title appears early; any
+    // non-generic heading deep in the body (e.g., "# Open Source" at line 700 of a
+    // long proposal) is a section header, not the title.
+    const headings = [...content.matchAll(/^(#{1,2})\s+(.+?)$/gm)]
+      .slice(0, 5)
+      .map((m) => ({ level: m[1].length, raw: m[2], clean: unwrap(m[2]) }))
+      .filter((h) => h.clean.length > 0);
+
+    // First pass: prefer H1 titles, accept H2 only when it explicitly looks like a title
+    for (const h of headings) {
+      const stripped = stripDFPPrefix(h.clean);
+      const looksLikeTitle =
+        h.level === 1 ||
+        stripped !== h.clean ||                     // had DFP prefix that we stripped
+        /^\*\*.+\*\*$/.test(h.raw.trim());          // bold-wrapped in source
+      if (looksLikeTitle && !isGeneric(stripped) && stripped.length > 3) {
+        title = stripped;
+        break;
+      }
+    }
+
+    // Second pass: if first H1 is the generic "Development Fund Proposal" and the very
+    // next heading is a non-generic H2, that's the title.
+    if (!title && headings.length >= 2) {
+      const first = headings[0];
+      const second = headings[1];
+      if (
+        first.level === 1 &&
+        /^development fund proposal$/i.test(first.clean) &&
+        second.level === 2 &&
+        !isGeneric(second.clean) &&
+        second.clean.length > 3
+      ) {
+        title = second.clean;
+      }
+    }
+
+    // Third pass: if the very first heading is H2 (no H1 in file) and non-generic, use it.
+    // openzeppelin-canton-ecosystem-stack.md is structured this way.
+    if (!title && headings.length > 0) {
+      const first = headings[0];
+      if (first.level === 2 && !isGeneric(first.clean) && first.clean.length > 3) {
+        const stripped = stripDFPPrefix(first.clean);
+        title = stripped;
+      }
+    }
+  }
+
+  if (!title) {
+    // Known acronyms / brand casing we want to preserve verbatim
+    const preserveCase: Record<string, string> = {
+      sv: 'SV', dapp: 'dApp', dapps: 'dApps', dpm: 'DPM', daml: 'Daml',
+      sdk: 'SDK', sdks: 'SDKs', api: 'API', apis: 'APIs', cli: 'CLI',
+      pqs: 'PQS', dex: 'DEX', defi: 'DeFi', cc: 'CC', oss: 'OSS',
+      devkit: 'DevKit', cctools: 'CCTools',
+    };
+    title = filename
+      .replace(/\.md$/, '')
+      .replace(/^\d{4}-\d{2}-/, '')
+      .replace(/Development[- ]Fund[- ]Proposal[- ]/i, '')
+      .replace(/[-_]+/g, ' ')
+      .trim()
+      .split(/\s+/)
+      .map((word) => {
+        const lower = word.toLowerCase();
+        if (preserveCase[lower]) return preserveCase[lower];
+        return word.charAt(0).toUpperCase() + word.slice(1);
+      })
+      .join(' ');
+  }
 
   // Metadata block — two supported formats:
   //   A) `**Key:** Value` lines (cctools/devkit style)

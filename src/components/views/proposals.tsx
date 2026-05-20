@@ -192,16 +192,20 @@ export default function ProposalsView({ data, period, openProposal }: ProposalsV
                   : 0;
                 return (
                   <tr key={p.id} className="row" onClick={() => openProposal(p)}>
-                    <td className="mono">{p.id}</td>
-                    <td>
-                      <div style={{ fontWeight: 500 }}>{p.title}</div>
-                      <div style={{ color: 'var(--ink-3)', fontSize: 11.5 }}>
-                        {p.applicant} &middot; PR #{p.pr_number}
+                    <td className="mono" style={{ whiteSpace: 'nowrap', verticalAlign: 'top', paddingTop: 13 }}>{p.id}</td>
+                    <td style={{ maxWidth: 360 }}>
+                      <div style={{ fontWeight: 500, fontSize: 13, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.title}>
+                        {p.title}
+                      </div>
+                      <div style={{ color: 'var(--ink-3)', fontSize: 11.5, marginTop: 2 }}>
+                        {p.applicant}{p.pr_number > 0 && ` · PR #${p.pr_number}`}
                       </div>
                     </td>
-                    <td>{p.champion}</td>
+                    <td style={{ fontSize: 12, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.champion}>
+                      {p.champion === '—' ? <span style={{ color: 'var(--ink-4)' }}>—</span> : p.champion}
+                    </td>
                     <td>
-                      <span className="tag">
+                      <span className="tag" style={{ whiteSpace: 'nowrap' }}>
                         <span
                           className="tag-dot"
                           style={{
@@ -216,21 +220,39 @@ export default function ProposalsView({ data, period, openProposal }: ProposalsV
                         {statusMeta[p.status]?.label}
                       </Pill>
                     </td>
-                    <td>
-                      {p.status === 'approved' ? (
-                        <div className="row" style={{ gap: 4 }}>
-                          <span className="mini-prog good">
-                            <div style={{ width: `${pct}%` }} />
-                          </span>
+                    <td style={{ minWidth: 100 }}>
+                      {p.milestones.length === 0 ? (
+                        <span style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>—</span>
+                      ) : p.status === 'approved' ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <span
                             style={{
                               fontFamily: 'var(--font-mono)',
                               fontSize: 11.5,
-                              color: 'var(--ink-3)',
+                              color: 'var(--ink-2)',
+                              minWidth: 28,
                             }}
                           >
                             {delivered}/{p.milestones.length}
                           </span>
+                          <div
+                            style={{
+                              flex: 1,
+                              height: 4,
+                              maxWidth: 60,
+                              background: 'var(--surface-2)',
+                              borderRadius: 999,
+                              overflow: 'hidden',
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: `${pct}%`,
+                                height: '100%',
+                                background: 'var(--good)',
+                              }}
+                            />
+                          </div>
                         </div>
                       ) : (
                         <span
@@ -240,12 +262,14 @@ export default function ProposalsView({ data, period, openProposal }: ProposalsV
                             color: 'var(--ink-4)',
                           }}
                         >
-                          {p.milestones.length} planned
+                          {p.milestones.length}
                         </span>
                       )}
                     </td>
-                    <td className="num">{fmtCC(p.amount_cc)}</td>
-                    <td style={{ color: 'var(--ink-3)', fontSize: 11.5 }}>
+                    <td className="num">
+                      {fmtCC(p.amount_cc)} <span style={{ color: 'var(--ink-4)', fontFamily: 'var(--font-mono)' }}>CC</span>
+                    </td>
+                    <td style={{ color: 'var(--ink-3)', fontSize: 11.5, whiteSpace: 'nowrap' }}>
                       {fmtDate(p.submitted_at)}
                     </td>
                   </tr>

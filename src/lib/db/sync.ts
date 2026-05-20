@@ -8,6 +8,7 @@ import {
   fetchAllPRLifecycles,
   getPipelineLifecycles,
 } from '@/lib/github/lifecycle';
+import { buildBoard3StatusMap, fetchBoard3 } from '@/lib/github/project-boards';
 
 export interface SyncResult {
   sync_id: string;
@@ -79,14 +80,21 @@ export async function syncProposals(): Promise<SyncResult> {
   const errors: { filename: string; error: string }[] = [];
 
   try {
-    // Fetch files + lifecycles in parallel
-    const [files, lifecycles] = await Promise.all([
+    // Fetch files + lifecycles + Project Board #3 (if scope granted) in parallel
+    const [files, lifecycles, board3] = await Promise.all([
       listProposalFiles(),
       fetchAllPRLifecycles().catch(() => []),
+      fetchBoard3(),
     ]);
     const lifecycleMap = buildFilenameLifecycleMap(lifecycles);
     const pipeline = getPipelineLifecycles(lifecycles);
     const inRepoFiles = new Set(files.map((f) => f.filename));
+
+    // Board #3 status map — null if scope wasn't granted
+    const boardStatusByPR = board3 ? buildBoard3StatusMap(board3) : null;
+    if (boardStatusByPR) {
+      console.log(`Project Board #3: ${boardStatusByPR.size} items with status`);
+    }
 
     // Pass 1: in-repo proposals (full markdown parse)
     let idx = 0;
@@ -119,6 +127,11 @@ export async function syncProposals(): Promise<SyncResult> {
           const milestonesLocked = !!existing?.milestones_locked;
           const o = new Set(overrides);
 
+          // Status precedence: Board #3 > PR label derivation > fallback 'approved'
+          // (in-repo proposals are merged, so 'approved' is the reasonable fallback)
+          const boardStatus = lc?.pr_number ? boardStatusByPR?.get(lc.pr_number) : undefined;
+          const incomingStatus = boardStatus?.status || lc?.derived_status || 'approved';
+
           // Compute incoming values
           const incoming = {
             title: parsed.title,
@@ -127,7 +140,7 @@ export async function syncProposals(): Promise<SyncResult> {
             champion: parsed.champion,
             category: categoryFromLabels(labels) || parsed.category,
             raw_category: parsed.category,
-            status: lc?.derived_status || 'approved',
+            status: incomingStatus,
             total_funding_cc: parsed.total_funding_cc,
             quarter: deriveQuarter(parsed.created),
             website: parsed.website,
@@ -246,6 +259,10 @@ export async function syncProposals(): Promise<SyncResult> {
       const title = lc.pr_title.replace(/^Proposal:\s*/i, '').trim();
       const category = categoryFromLabels(lc.labels);
 
+      // Board #3 status takes precedence over PR-label-derived status
+      const boardStatus = boardStatusByPR?.get(lc.pr_number);
+      const status = boardStatus?.status || lc.derived_status;
+
       db.insert(schema.proposals)
         .values({
           id,
@@ -257,7 +274,7 @@ export async function syncProposals(): Promise<SyncResult> {
           title: title || pseudoFilename.replace('.md', ''),
           author: lc.author,
           github_author: lc.author,
-          status: lc.derived_status,
+          status,
           category,
           labels: JSON.stringify(lc.labels),
           total_funding_cc: 0,
@@ -269,7 +286,7 @@ export async function syncProposals(): Promise<SyncResult> {
         .onConflictDoUpdate({
           target: schema.proposals.filename,
           set: {
-            status: lc.derived_status,
+            status,
             labels: JSON.stringify(lc.labels),
             pr_state: lc.pr_state,
             updated_at: new Date().toISOString(),
