@@ -3,19 +3,11 @@
 // Project #3 ("Dev Fund Incoming") — authoritative proposal lifecycle (status column)
 // Project #5 ("Dev Fund Milestones") — authoritative milestone delivery + CC amounts
 //
-// REQUIRES `read:project` scope on the GitHub token. Without it, these queries return
-// INSUFFICIENT_SCOPES error. Sync handler catches it and falls back to label-derived
-// status from src/lib/github/lifecycle.ts.
+// REQUIRES `read:project` scope on the GitHub token. Without it, queries return
+// INSUFFICIENT_SCOPES; the caller falls back to label-derived status.
 
 import { getOctokit, REPO_OWNER } from './client';
-import type { ProposalStatus } from '@/lib/types';
-
-interface ProjectV2ItemRaw {
-  status: string | null;
-  pr_number: number | null;
-  issue_number: number | null;
-  title: string;
-}
+import type { MilestoneStatus, ProposalStatus } from '@/lib/types';
 
 const BOARD_QUERY = (projectNumber: number) => `
   query {
@@ -23,25 +15,43 @@ const BOARD_QUERY = (projectNumber: number) => `
       projectV2(number: ${projectNumber}) {
         items(first: 200) {
           nodes {
-            fieldValues(first: 20) {
+            id
+            fieldValues(first: 30) {
               nodes {
+                __typename
                 ... on ProjectV2ItemFieldSingleSelectValue {
                   name
-                  field {
-                    ... on ProjectV2SingleSelectField { name }
-                  }
+                  field { ... on ProjectV2SingleSelectField { name } }
+                }
+                ... on ProjectV2ItemFieldNumberValue {
+                  number
+                  field { ... on ProjectV2NumberField { name } }
+                }
+                ... on ProjectV2ItemFieldTextValue {
+                  text
+                  field { ... on ProjectV2Field { name } }
+                }
+                ... on ProjectV2ItemFieldDateValue {
+                  date
+                  field { ... on ProjectV2Field { name } }
                 }
               }
             }
             content {
+              __typename
               ... on PullRequest {
                 number
                 title
+                labels(first: 20) { nodes { name } }
               }
               ... on Issue {
                 number
                 title
+                state
+                closedAt
+                labels(first: 20) { nodes { name } }
               }
+              ... on DraftIssue { title }
             }
           }
         }
@@ -50,7 +60,6 @@ const BOARD_QUERY = (projectNumber: number) => `
   }
 `;
 
-/** Map Project Board #3 column names to dashboard ProposalStatus. */
 const BOARD_3_STATUS_MAP: Record<string, ProposalStatus> = {
   'incoming': 'submitted',
   'needs champion': 'submitted',
@@ -61,100 +70,151 @@ const BOARD_3_STATUS_MAP: Record<string, ProposalStatus> = {
   'needs review by core contributors/security': 'tech-review',
   'ready for vote': 'voting',
   'voting live': 'voting',
-  'voting': 'voting',
-  'approved': 'approved',
+  voting: 'voting',
+  approved: 'approved',
   'needs revision': 'tech-review',
-  'declined': 'declined',
-  'rejected': 'declined',
+  declined: 'declined',
+  rejected: 'declined',
+};
+
+const BOARD_5_STATUS_MAP: Record<string, MilestoneStatus> = {
+  'backlog': 'planned',
+  'in progress': 'in-progress',
+  'ready for evidence': 'in-progress',
+  'ready for milestone review': 'in-review',
+  'milestone approved': 'delivered',
+  'payment released': 'delivered',
+  done: 'delivered',
 };
 
 export interface BoardItem {
+  content_type: 'pr' | 'issue' | 'draft' | 'unknown';
   pr_number: number | null;
   issue_number: number | null;
+  issue_state: 'open' | 'closed' | null;
+  issue_closed_at: string | null;
   title: string;
+  labels: string[];
   board_status: string | null; // raw column name
+  estimate_cc: number | null;   // numeric field value (Estimate / Amount / CC)
+}
+
+export interface Board3Item extends BoardItem {
   derived_status: ProposalStatus | null;
 }
 
-/**
- * Fetch all items from Project Board #3 (proposal lifecycle).
- * Returns null on scope error so the caller can fall back to label-derived status.
- */
-export async function fetchBoard3(): Promise<BoardItem[] | null> {
-  try {
-    const octokit = getOctokit();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data: any = await octokit.graphql(BOARD_QUERY(3));
-    return extractBoardItems(data, BOARD_3_STATUS_MAP);
-  } catch (e) {
-    const msg = (e as Error).message || '';
-    if (msg.includes('INSUFFICIENT_SCOPES') || msg.includes('read:project')) {
-      console.warn('Project Board #3 query skipped — read:project scope not granted on GITHUB_TOKEN');
-      return null;
-    }
-    console.error('Project Board #3 fetch error:', e);
-    return null;
-  }
+export interface Board5Item extends BoardItem {
+  derived_status: MilestoneStatus | null;
 }
 
-/**
- * Fetch all items from Project Board #5 (milestone delivery).
- * Returns null on scope error.
- */
-export async function fetchBoard5(): Promise<BoardItem[] | null> {
-  try {
-    const octokit = getOctokit();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data: any = await octokit.graphql(BOARD_QUERY(5));
-    return extractBoardItems(data, {});
-  } catch (e) {
-    const msg = (e as Error).message || '';
-    if (msg.includes('INSUFFICIENT_SCOPES') || msg.includes('read:project')) {
-      console.warn('Project Board #5 query skipped — read:project scope not granted on GITHUB_TOKEN');
-      return null;
-    }
-    console.error('Project Board #5 fetch error:', e);
-    return null;
-  }
-}
-
-function extractBoardItems(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  data: any,
-  statusMap: Record<string, ProposalStatus>,
-): BoardItem[] {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractItems(data: any): BoardItem[] {
   const nodes = data?.organization?.projectV2?.items?.nodes ?? [];
   const items: BoardItem[] = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const node of nodes as any[]) {
     if (!node?.content) continue;
-    const pr_number = typeof node.content.number === 'number' && 'title' in node.content ? node.content.number : null;
-    const title = node.content.title || '';
-    // Find a field value whose field name is "Status" (case-insensitive)
+    const c = node.content;
+    let pr_number: number | null = null;
+    let issue_number: number | null = null;
+    let issue_state: 'open' | 'closed' | null = null;
+    let issue_closed_at: string | null = null;
+    let content_type: BoardItem['content_type'] = 'unknown';
+    if (c.__typename === 'PullRequest') {
+      content_type = 'pr';
+      pr_number = c.number;
+    } else if (c.__typename === 'Issue') {
+      content_type = 'issue';
+      issue_number = c.number;
+      issue_state = c.state?.toLowerCase() === 'closed' ? 'closed' : 'open';
+      issue_closed_at = c.closedAt || null;
+    } else if (c.__typename === 'DraftIssue') {
+      content_type = 'draft';
+    }
+    const labels: string[] = ((c.labels?.nodes ?? []) as { name: string }[])
+      .map((l) => l.name)
+      .filter(Boolean);
+
     let board_status: string | null = null;
+    let estimate_cc: number | null = null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const fv of (node.fieldValues?.nodes ?? []) as any[]) {
-      if (fv?.field?.name && /^status$/i.test(fv.field.name)) {
-        board_status = fv.name || null;
-        break;
+      const fieldName = fv?.field?.name as string | undefined;
+      if (!fieldName) continue;
+      if (fv.__typename === 'ProjectV2ItemFieldSingleSelectValue' && /^status$/i.test(fieldName)) {
+        board_status = fv.name ?? null;
+      } else if (fv.__typename === 'ProjectV2ItemFieldNumberValue' &&
+        /^(estimate|amount|cc|funding|budget)$/i.test(fieldName)) {
+        if (typeof fv.number === 'number' && fv.number > 0) {
+          estimate_cc = Math.round(fv.number);
+        }
       }
     }
-    const derived_status = board_status && statusMap[board_status.toLowerCase().trim()]
-      ? statusMap[board_status.toLowerCase().trim()]
-      : null;
     items.push({
+      content_type,
       pr_number,
-      issue_number: null,
-      title,
+      issue_number,
+      issue_state,
+      issue_closed_at,
+      title: c.title ?? '',
+      labels,
       board_status,
-      derived_status,
+      estimate_cc,
     });
   }
   return items;
 }
 
-/** Build a map from PR number → board_status for proposals on Board #3. */
-export function buildBoard3StatusMap(items: BoardItem[]): Map<number, { status: ProposalStatus; raw: string }> {
+/** Fetch Project Board #3 (proposal lifecycle). Returns null on scope error. */
+export async function fetchBoard3(): Promise<Board3Item[] | null> {
+  try {
+    const octokit = getOctokit();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await octokit.graphql(BOARD_QUERY(3));
+    return extractItems(data).map((item) => ({
+      ...item,
+      derived_status:
+        item.board_status && BOARD_3_STATUS_MAP[item.board_status.toLowerCase().trim()]
+          ? BOARD_3_STATUS_MAP[item.board_status.toLowerCase().trim()]
+          : null,
+    }));
+  } catch (e) {
+    const msg = (e as Error).message || '';
+    if (msg.includes('INSUFFICIENT_SCOPES') || msg.includes('read:project')) {
+      console.warn('Board #3 query skipped — read:project scope not on GITHUB_TOKEN');
+      return null;
+    }
+    console.error('Board #3 fetch error:', e);
+    return null;
+  }
+}
+
+/** Fetch Project Board #5 (milestone delivery + Estimate field). Returns null on scope error. */
+export async function fetchBoard5(): Promise<Board5Item[] | null> {
+  try {
+    const octokit = getOctokit();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await octokit.graphql(BOARD_QUERY(5));
+    return extractItems(data).map((item) => ({
+      ...item,
+      derived_status:
+        item.board_status && BOARD_5_STATUS_MAP[item.board_status.toLowerCase().trim()]
+          ? BOARD_5_STATUS_MAP[item.board_status.toLowerCase().trim()]
+          : null,
+    }));
+  } catch (e) {
+    const msg = (e as Error).message || '';
+    if (msg.includes('INSUFFICIENT_SCOPES') || msg.includes('read:project')) {
+      console.warn('Board #5 query skipped — read:project scope not on GITHUB_TOKEN');
+      return null;
+    }
+    console.error('Board #5 fetch error:', e);
+    return null;
+  }
+}
+
+/** PR number → Board #3 status (for proposal lifecycle). */
+export function buildBoard3StatusMap(items: Board3Item[]): Map<number, { status: ProposalStatus; raw: string }> {
   const map = new Map<number, { status: ProposalStatus; raw: string }>();
   for (const item of items) {
     if (item.pr_number && item.derived_status) {
@@ -162,4 +222,25 @@ export function buildBoard3StatusMap(items: BoardItem[]): Map<number, { status: 
     }
   }
   return map;
+}
+
+export interface Board5MilestoneInfo {
+  issue_number: number;
+  title: string;
+  status: MilestoneStatus;
+  estimate_cc: number | null;
+  closed_at: string | null;
+}
+
+/** All Board #5 items that represent milestones (have an underlying issue). */
+export function getBoard5Milestones(items: Board5Item[]): Board5MilestoneInfo[] {
+  return items
+    .filter((item) => item.issue_number !== null && item.derived_status !== null)
+    .map((item) => ({
+      issue_number: item.issue_number!,
+      title: item.title,
+      status: item.derived_status!,
+      estimate_cc: item.estimate_cc,
+      closed_at: item.issue_closed_at,
+    }));
 }

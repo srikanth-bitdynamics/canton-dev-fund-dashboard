@@ -13,6 +13,14 @@ import { db, schema } from './client';
 import { eq } from 'drizzle-orm';
 import { fetchLedger, type LedgerProject } from '@/lib/github/ledger';
 import { fetchAllPRLifecycles, getPipelineLifecycles, type PRLifecycle } from '@/lib/github/lifecycle';
+import {
+  buildBoard3StatusMap,
+  fetchBoard3,
+  fetchBoard5,
+  getBoard5Milestones,
+  type Board5MilestoneInfo,
+} from '@/lib/github/project-boards';
+import { fetchMilestoneIssues } from '@/lib/github/milestone-issues';
 
 export interface SyncResult {
   sync_id: string;
@@ -20,6 +28,7 @@ export interface SyncResult {
   milestones_synced: number;
   payments_synced: number;
   pipeline_synced: number;
+  board5_overlay_applied: number; // count of milestones whose status/CC was overridden by Board #5
   errors: { source: string; error: string }[];
   duration_ms: number;
   ledger_url?: string;
@@ -45,23 +54,27 @@ export async function syncProposals(): Promise<SyncResult> {
   let milestones_synced = 0;
   let payments_synced = 0;
   let pipeline_synced = 0;
+  let board5_overlay_applied = 0;
   let ledgerUrl: string | undefined;
 
   try {
-    // Pull ledger + PR lifecycles in parallel
-    const [ledgerResult, lifecycles] = await Promise.all([
+    // Pull ledger + PR lifecycles + milestone issues + Project Boards (if scope granted) in parallel
+    const [ledgerResult, lifecycles, milestoneIssues, board3, board5] = await Promise.all([
       fetchLedger(),
       fetchAllPRLifecycles().catch((e) => {
         errors.push({ source: 'pr-lifecycles', error: (e as Error).message });
         return [] as PRLifecycle[];
       }),
+      fetchMilestoneIssues().catch(() => []),
+      fetchBoard3(),  // null if read:project not granted
+      fetchBoard5(),  // null if read:project not granted
     ]);
 
     if (!ledgerResult) {
       errors.push({ source: 'ledger', error: 'Ledger issue not reachable or could not parse YAML' });
     } else {
       ledgerUrl = ledgerResult.issue_url;
-      const result = upsertLedgerProjects(ledgerResult.data.projects, lifecycles);
+      const result = upsertLedgerProjects(ledgerResult.data.projects, lifecycles, milestoneIssues);
       approved_synced = result.approved;
       milestones_synced = result.milestones;
       payments_synced = result.payments;
@@ -70,7 +83,27 @@ export async function syncProposals(): Promise<SyncResult> {
     // Pipeline (non-approved): open / closed-unmerged PRs that propose new files
     const pipeline = getPipelineLifecycles(lifecycles);
     const ledgerPRs = new Set((ledgerResult?.data.projects ?? []).map((p) => p.pr));
+
+    // If Board #3 is reachable, status from board takes precedence over PR labels
+    if (board3) {
+      const board3Map = buildBoard3StatusMap(board3);
+      console.log(`Board #3: ${board3Map.size} items with status`);
+      for (const lc of pipeline) {
+        const b = board3Map.get(lc.pr_number);
+        if (b) {
+          lc.derived_status = b.status;
+        }
+      }
+    }
     pipeline_synced = upsertPipelineLifecycles(pipeline, ledgerPRs);
+
+    // Board #5 overlay — when read:project granted, board state is authoritative for
+    // milestone delivery + payment status. This OVERRIDES whatever the ledger said.
+    if (board5) {
+      const board5Ms = getBoard5Milestones(board5);
+      console.log(`Board #5: ${board5Ms.length} milestone items`);
+      board5_overlay_applied = applyBoard5Overlay(board5Ms);
+    }
 
     const duration_ms = Date.now() - start;
     db.update(schema.sync_log)
@@ -89,6 +122,7 @@ export async function syncProposals(): Promise<SyncResult> {
       milestones_synced,
       payments_synced,
       pipeline_synced,
+      board5_overlay_applied,
       errors,
       duration_ms,
       ledger_url: ledgerUrl,
@@ -111,11 +145,27 @@ const LEDGER_OWNED_FIELDS = new Set([
   'quarter', 'approved_date',
 ]);
 
+interface MilestoneIssueLite {
+  issue_number: number;
+  state: 'open' | 'closed';
+  closed_at: string | null;
+  pr_number: number | null;
+  milestone_number: number | null;
+}
+
 function upsertLedgerProjects(
   projects: LedgerProject[],
   lifecycles: PRLifecycle[],
+  milestoneIssues: MilestoneIssueLite[],
 ): { approved: number; milestones: number; payments: number } {
   const lifecycleByPR = new Map(lifecycles.map((lc) => [lc.pr_number, lc]));
+  // Index milestone issues by (pr_number, milestone_number) for fast lookup
+  const issueByKey = new Map<string, MilestoneIssueLite>();
+  for (const mi of milestoneIssues) {
+    if (mi.pr_number !== null && mi.milestone_number !== null) {
+      issueByKey.set(`${mi.pr_number}:${mi.milestone_number}`, mi);
+    }
+  }
   let approved = 0;
   let msCount = 0;
   let payCount = 0;
@@ -196,6 +246,8 @@ function upsertLedgerProjects(
       const status = m.status === 'delivered' ? 'delivered'
         : m.status === 'in_progress' ? 'in-progress'
         : 'planned';
+      // Link to the GitHub milestone-tracking issue if present (so Board #5 overlay can match)
+      const issueLink = issueByKey.get(`${p.pr}:${m.n}`);
       db.insert(schema.milestones).values({
         id: mid,
         proposal_id: p.id,
@@ -205,6 +257,7 @@ function upsertLedgerProjects(
         estimated_delivery: m.due_date ?? null,
         estimated_delivery_date: m.due_date ?? null,
         status,
+        github_issue_number: issueLink?.issue_number ?? null,
         payment_released_at: m.released_date ?? null,
       }).run();
       msCount++;
@@ -286,4 +339,79 @@ function deriveQuarter(createdISO: string | null): string {
   if (!createdISO) return '';
   const d = new Date(createdISO);
   return `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`;
+}
+
+/**
+ * Apply Board #5 column status + Estimate (CC) as the authoritative overlay onto
+ * milestones in our DB. We match by the milestone issue's GitHub issue number
+ * (populated earlier via milestone-issues.ts → milestones.github_issue_number).
+ *
+ * When a Board #5 item is in Done/Payment Released:
+ *   - milestone.status = 'delivered'
+ *   - a payment row is created/updated (idempotent)
+ *
+ * Returns the number of milestones whose state was overridden.
+ */
+function applyBoard5Overlay(items: Board5MilestoneInfo[]): number {
+  let count = 0;
+  const now = new Date().toISOString();
+
+  for (const item of items) {
+    // Match the DB milestone by github_issue_number
+    const matched = db
+      .select()
+      .from(schema.milestones)
+      .where(eq(schema.milestones.github_issue_number, item.issue_number))
+      .get();
+    if (!matched) continue;
+
+    const overlayStatus =
+      item.status === 'delivered' ? 'delivered'
+      : item.status === 'in-review' ? 'in-review'
+      : item.status === 'in-progress' ? 'in-progress'
+      : 'planned';
+
+    // Update milestone state (and CC if the Estimate field differs significantly from ours)
+    const fundingFromBoard =
+      item.estimate_cc && Math.abs(item.estimate_cc - matched.funding_cc) > 1000
+        ? item.estimate_cc
+        : matched.funding_cc;
+
+    db.update(schema.milestones)
+      .set({
+        status: overlayStatus,
+        funding_cc: fundingFromBoard,
+        payment_released_at: overlayStatus === 'delivered' ? item.closed_at || now : null,
+        updated_at: now,
+      })
+      .where(eq(schema.milestones.id, matched.id))
+      .run();
+
+    // If delivered → ensure a payment row exists
+    if (overlayStatus === 'delivered') {
+      const existing = db
+        .select()
+        .from(schema.payments)
+        .where(eq(schema.payments.milestone_id, matched.id))
+        .get();
+      if (!existing) {
+        db.insert(schema.payments).values({
+          id: `pay-${matched.id}`,
+          milestone_id: matched.id,
+          amount_cc: fundingFromBoard,
+          released_date: item.closed_at?.split('T')[0] ?? null,
+          status: 'released',
+          notes: `Auto-recorded from Board #5 (status: ${item.status})`,
+          evidence_url: `https://github.com/canton-foundation/canton-dev-fund/issues/${item.issue_number}`,
+        }).run();
+      }
+    } else {
+      // Not delivered → remove any auto-recorded payment for this milestone
+      db.delete(schema.payments)
+        .where(eq(schema.payments.milestone_id, matched.id))
+        .run();
+    }
+    count++;
+  }
+  return count;
 }
