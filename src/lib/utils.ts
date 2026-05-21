@@ -35,11 +35,13 @@ export const statusMeta: Record<ProposalStatus, { label: string; dot: string }> 
 };
 
 export const milestoneStatusMeta: Record<MilestoneStatus, { label: string; dot: string }> = {
-  planned: { label: 'Planned', dot: 'var(--ms-planned)' },
-  'in-progress': { label: 'In progress', dot: 'var(--ms-progress)' },
-  'in-review': { label: 'In review', dot: 'var(--ms-review)' },
-  delivered: { label: 'Delivered', dot: 'var(--ms-delivered)' },
-  'at-risk': { label: 'At risk', dot: 'var(--ms-risk)' },
+  planned:       { label: 'Planned',                       dot: 'var(--ms-planned)' },
+  'in-progress': { label: 'In Progress',                   dot: 'var(--ms-progress)' },
+  'in-review':   { label: 'In Review for Payment',         dot: 'var(--ms-review)' },
+  approved:      { label: 'Ready for Payment',             dot: 'var(--ms-approved)' },
+  paying:        { label: 'Payment Ready to be Disbursed', dot: 'var(--ms-paying)' },
+  delivered:     { label: 'Payment Disbursed',             dot: 'var(--ms-delivered)' },
+  'at-risk':     { label: 'At risk',                       dot: 'var(--ms-risk)' },
 };
 
 export function categoryMeta(id: string): { label: string; ink: string } {

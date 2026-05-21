@@ -38,11 +38,13 @@
   --s-approved:  oklch(0.74 0.13 160);
   --s-declined:  oklch(0.68 0.16 25);
 
-  /* Milestone */
+  /* Milestone (color-flow: blue → purple → teal → mint → green) */
   --ms-planned:   oklch(0.60 0.02 250);
-  --ms-progress:  oklch(0.74 0.13 220);
-  --ms-review:    oklch(0.72 0.12 280);
-  --ms-delivered: oklch(0.74 0.13 160);
+  --ms-progress:  oklch(0.74 0.13 220);  /* blue       — In Progress */
+  --ms-review:    oklch(0.72 0.12 280);  /* purple     — In Review for Payment */
+  --ms-approved:  oklch(0.72 0.13 195);  /* teal       — Ready for Payment */
+  --ms-paying:    oklch(0.74 0.13 175);  /* mint       — Payment Ready to be Disbursed */
+  --ms-delivered: oklch(0.74 0.13 160);  /* green      — Payment Disbursed */
   --ms-risk:      oklch(0.68 0.16 25);
 
   /* Category accent inks */
@@ -314,6 +316,8 @@ input, select, textarea { font-family: inherit; color: inherit; }
 }
 .ms-cell:hover { transform: scale(1.15); z-index: 2; }
 .ms-cell.delivered   { background: var(--ms-delivered); border-color: oklch(0.42 0.08 160); }
+.ms-cell.paying      { background: var(--ms-paying);    border-color: oklch(0.45 0.08 175); }
+.ms-cell.approved    { background: var(--ms-approved);  border-color: oklch(0.45 0.08 195); }
 .ms-cell.in-review   { background: var(--ms-review);    border-color: oklch(0.45 0.08 280); }
 .ms-cell.in-progress { background: var(--ms-progress);  border-color: oklch(0.45 0.08 220); }
 .ms-cell.at-risk     { background: var(--ms-risk);      border-color: oklch(0.42 0.08 25); }

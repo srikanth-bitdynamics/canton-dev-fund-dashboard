@@ -85,4 +85,20 @@ export interface Period {
 }
 
 export type ProposalStatus = 'submitted' | 'champion-review' | 'tech-review' | 'voting' | 'approved' | 'declined';
-export type MilestoneStatus = 'planned' | 'in-progress' | 'in-review' | 'delivered' | 'at-risk';
+
+// Milestone lifecycle (aligned to Board #5 columns):
+//   planned             — not started
+//   in-progress         — being worked on (includes Board #5 "Ready for evidence")
+//   in-review           — "In Review for Payment" (Board #5 "Ready for Milestone Review")
+//   approved            — "Ready for Payment" (Board #5 "Milestone Approved")
+//   paying              — "Payment Ready to be Disbursed" (Board #5 "Payment under way")
+//   delivered           — "Payment Disbursed" (Board #5 "Done")
+//   at-risk             — overdue / contested
+export type MilestoneStatus =
+  | 'planned'
+  | 'in-progress'
+  | 'in-review'
+  | 'approved'
+  | 'paying'
+  | 'delivered'
+  | 'at-risk';

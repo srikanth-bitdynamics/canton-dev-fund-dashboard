@@ -425,11 +425,8 @@ function applyBoard5Overlay(items: Board5MilestoneInfo[]): number {
     }
     if (!matched) continue;
 
-    const overlayStatus =
-      item.status === 'delivered' ? 'delivered'
-      : item.status === 'in-review' ? 'in-review'
-      : item.status === 'in-progress' ? 'in-progress'
-      : 'planned';
+    // Board #5 status is already a valid MilestoneStatus — pass through directly
+    const overlayStatus = item.status;
 
     // Update milestone state (and CC if the Estimate field differs significantly from ours)
     const fundingFromBoard =

@@ -418,9 +418,11 @@ export default function OverviewView({ data, period, signedIn, openProposal }: O
   const distributedDelta = Math.round(distributed * 0.15);
   const fmtDelta = (n: number) => (n >= 0 ? `+${fmtCC(n)}` : `−${fmtCC(Math.abs(n))}`);
 
-  // Milestones across all approved
+  // Milestones across all approved (Board #5 columns mapped to dashboard states)
   const allMs = approved.flatMap((p) => p.milestones);
   const deliveredCount = allMs.filter((m) => m.status === 'delivered').length;
+  const payingCount = allMs.filter((m) => m.status === 'paying').length;
+  const approvedReadyCount = allMs.filter((m) => m.status === 'approved').length;
   const inReview = allMs.filter((m) => m.status === 'in-review').length;
   const inProg = allMs.filter((m) => m.status === 'in-progress').length;
   const atRisk = allMs.filter((m) => m.status === 'at-risk').length;
@@ -590,19 +592,23 @@ export default function OverviewView({ data, period, signedIn, openProposal }: O
               size={132}
               thickness={16}
               slices={[
-                { value: deliveredCount, color: 'var(--ms-delivered)', label: 'Delivered' },
-                { value: inReview, color: 'var(--ms-review)', label: 'In review' },
-                { value: inProg, color: 'var(--ms-progress)', label: 'In progress' },
+                { value: deliveredCount, color: 'var(--ms-delivered)', label: 'Payment Disbursed' },
+                { value: payingCount, color: 'var(--ms-paying)', label: 'Payment Ready' },
+                { value: approvedReadyCount, color: 'var(--ms-approved)', label: 'Ready for Payment' },
+                { value: inReview, color: 'var(--ms-review)', label: 'In Review' },
+                { value: inProg, color: 'var(--ms-progress)', label: 'In Progress' },
                 { value: atRisk, color: 'var(--ms-risk)', label: 'At risk' },
                 { value: planned, color: 'var(--surface-3)', label: 'Planned' },
               ]}
               centerLabel={`${totalMs > 0 ? Math.round((deliveredCount / totalMs) * 100) : 0}%`}
-              centerSub="Delivered"
+              centerSub="Disbursed"
             />
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <MsRow color="var(--ms-delivered)" label="Delivered" n={deliveredCount} total={totalMs} />
-              <MsRow color="var(--ms-review)" label="In review" n={inReview} total={totalMs} />
-              <MsRow color="var(--ms-progress)" label="In progress" n={inProg} total={totalMs} />
+              <MsRow color="var(--ms-delivered)" label="Payment Disbursed" n={deliveredCount} total={totalMs} />
+              <MsRow color="var(--ms-paying)" label="Payment Ready" n={payingCount} total={totalMs} />
+              <MsRow color="var(--ms-approved)" label="Ready for Payment" n={approvedReadyCount} total={totalMs} />
+              <MsRow color="var(--ms-review)" label="In Review" n={inReview} total={totalMs} />
+              <MsRow color="var(--ms-progress)" label="In Progress" n={inProg} total={totalMs} />
               <MsRow color="var(--ms-risk)" label="At risk" n={atRisk} total={totalMs} />
               <MsRow color="var(--surface-3)" label="Planned" n={planned} total={totalMs} />
             </div>

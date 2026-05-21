@@ -47,16 +47,16 @@ export default function MilestonesView({ data, period, openProposal }: Milestone
       <div className="stat-grid">
         <StatCard label="Anticipated" value={allMs.length} sub="Across all approved" />
         <StatCard
-          label="Delivered"
+          label="Payment Disbursed"
           value={delivered}
           sub={`${allMs.length ? Math.round((delivered / allMs.length) * 100) : 0}% of anticipated`}
-          delta="+3 this week"
-          deltaTone="pos"
         />
         <StatCard
-          label="In review"
-          value={allMs.filter((m) => m.status === 'in-review').length}
-          sub="Awaiting committee sign-off"
+          label="In payment pipeline"
+          value={
+            allMs.filter((m) => ['in-review', 'approved', 'paying'].includes(m.status)).length
+          }
+          sub="In Review → Ready for Payment → Payment Ready"
         />
         <StatCard
           label="At risk"
@@ -78,14 +78,19 @@ export default function MilestonesView({ data, period, openProposal }: Milestone
           </div>
           <div className="legend">
             <span className="legend-item">
-              <span className="legend-sw" style={{ background: 'var(--ms-delivered)' }} /> Delivered
+              <span className="legend-sw" style={{ background: 'var(--ms-delivered)' }} /> Payment Disbursed
             </span>
             <span className="legend-item">
-              <span className="legend-sw" style={{ background: 'var(--ms-review)' }} /> In review
+              <span className="legend-sw" style={{ background: 'var(--ms-paying)' }} /> Payment Ready
             </span>
             <span className="legend-item">
-              <span className="legend-sw" style={{ background: 'var(--ms-progress)' }} /> In
-              progress
+              <span className="legend-sw" style={{ background: 'var(--ms-approved)' }} /> Ready for Payment
+            </span>
+            <span className="legend-item">
+              <span className="legend-sw" style={{ background: 'var(--ms-review)' }} /> In Review
+            </span>
+            <span className="legend-item">
+              <span className="legend-sw" style={{ background: 'var(--ms-progress)' }} /> In Progress
             </span>
             <span className="legend-item">
               <span className="legend-sw" style={{ background: 'var(--ms-risk)' }} /> At risk
@@ -167,7 +172,7 @@ export default function MilestonesView({ data, period, openProposal }: Milestone
             <Chip on={statusF === 'all'} onClick={() => setStatusF('all')}>
               All {allMs.length}
             </Chip>
-            {(['delivered', 'in-review', 'in-progress', 'at-risk', 'planned'] as const).map(
+            {(['delivered', 'paying', 'approved', 'in-review', 'in-progress', 'at-risk', 'planned'] as const).map(
               (s) => (
                 <Chip key={s} on={statusF === s} onClick={() => setStatusF(s)}>
                   <span
@@ -226,7 +231,7 @@ export default function MilestonesView({ data, period, openProposal }: Milestone
                   <td>
                     <Pill
                       tone={
-                        m.status === 'delivered'
+                        m.status === 'delivered' || m.status === 'paying' || m.status === 'approved'
                           ? 'good'
                           : m.status === 'at-risk'
                             ? 'bad'

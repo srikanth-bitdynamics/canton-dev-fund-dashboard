@@ -98,15 +98,21 @@ const BOARD_3_STATUS_MAP: Record<string, ProposalStatus> = {
 };
 
 const BOARD_5_STATUS_MAP: Record<string, MilestoneStatus> = {
+  // Work-in-flight
   'backlog': 'planned',
   'in progress': 'in-progress',
   'ready for evidence': 'in-progress',
-  'ready for milestone review': 'in-review',
-  'payment under way': 'in-review',     // payment authorized, awaiting on-chain release
-  'payment underway': 'in-review',       // same, no-space variant
-  'milestone approved': 'delivered',
+
+  // Pre-payment review chain
+  'ready for milestone review': 'in-review',   // "In Review for Payment"
+  'milestone approved': 'approved',             // "Ready for Payment"
+  'payment under way': 'paying',                // "Payment Ready to be Disbursed"
+  'payment underway': 'paying',                  // no-space variant
+
+  // Done
+  'payment disbursed': 'delivered',
   'payment released': 'delivered',
-  done: 'delivered',
+  done: 'delivered',                             // Board #5's "Done" column
 };
 
 export interface BoardItem {

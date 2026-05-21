@@ -16,22 +16,22 @@ export default function PaymentsView({ data, period }: PaymentsViewProps) {
   const totalPaid = payments.reduce((s, p) => s + p.amount_cc, 0);
   const recipients = new Set(payments.map((p) => p.applicant)).size;
 
-  // Milestones across all approved
+  // Milestones across all approved, broken down by payment-pipeline state
   const approved = data.proposals.filter((p) => p.status === 'approved');
   const allMs = approved.flatMap((p) => p.milestones);
-  const inReviewMs = allMs.filter((m) => m.status === 'in-review');
   const inProgressMs = allMs.filter((m) => m.status === 'in-progress');
-  const inReviewCC = inReviewMs.reduce((s, m) => s + m.amount_cc, 0);
+  const inReviewMs = allMs.filter((m) => m.status === 'in-review');         // In Review for Payment
+  const approvedReadyMs = allMs.filter((m) => m.status === 'approved');     // Ready for Payment
+  const payingMs = allMs.filter((m) => m.status === 'paying');              // Payment Ready to be Disbursed
   const inProgressCC = inProgressMs.reduce((s, m) => s + m.amount_cc, 0);
+  const inReviewCC = inReviewMs.reduce((s, m) => s + m.amount_cc, 0);
+  const approvedReadyCC = approvedReadyMs.reduce((s, m) => s + m.amount_cc, 0);
+  const payingCC = payingMs.reduce((s, m) => s + m.amount_cc, 0);
   const totalDistributedAllTime = data.payments.reduce((s, p) => s + p.amount_cc, 0);
 
-  // Split in-review by Board #5 column (when populated)
-  const isPaymentUnderway = (m: { board_status?: string }) =>
-    !!m.board_status && /payment\s*under\s*way/i.test(m.board_status);
-  const paymentUnderwayMs = inReviewMs.filter(isPaymentUnderway);
-  const readyForReviewMs = inReviewMs.filter((m) => !isPaymentUnderway(m));
-  const paymentUnderwayCC = paymentUnderwayMs.reduce((s, m) => s + m.amount_cc, 0);
-  const readyForReviewCC = readyForReviewMs.reduce((s, m) => s + m.amount_cc, 0);
+  // Combined pre-payment queue (review → approved → paying)
+  const queuedCC = inReviewCC + approvedReadyCC + payingCC;
+  const queuedCount = inReviewMs.length + approvedReadyMs.length + payingMs.length;
 
   // Disbursement trend — monthly buckets for the last 12 months
   const trend = buildMonthlyTrend(data.payments, 12);
@@ -76,17 +76,17 @@ export default function PaymentsView({ data, period }: PaymentsViewProps) {
         </div>
       </div>
 
-      {/* KPI strip */}
+      {/* KPI strip — payment pipeline left → right */}
       <div className="stat-grid">
         <StatCard
-          label="Released in period"
+          label="Payment Disbursed (in period)"
           value={
             <>
               <IconCC size={18} />
               <span style={{ marginLeft: 6 }}>{fmtCC(totalPaid)}</span>
             </>
           }
-          sub={`${payments.length} transactions`}
+          sub={`${payments.length} transactions · ${fmtCC(totalDistributedAllTime)} all-time`}
         >
           {trendValues.length > 0 && (
             <div className="sparkbox">
@@ -94,28 +94,41 @@ export default function PaymentsView({ data, period }: PaymentsViewProps) {
             </div>
           )}
         </StatCard>
+
         <StatCard
-          label="Payments in review"
-          value={fmtCC(inReviewCC)}
-          sub={
-            paymentUnderwayMs.length > 0
-              ? `${readyForReviewMs.length} ready for review · ${paymentUnderwayMs.length} payment under way`
-              : `${inReviewMs.length} milestone${inReviewMs.length === 1 ? '' : 's'} awaiting committee sign-off`
-          }
-          delta={
-            paymentUnderwayMs.length > 0
-              ? `${fmtCC(readyForReviewCC)} need vote · ${fmtCC(paymentUnderwayCC)} paying`
-              : inReviewMs.length > 0
-                ? `${inReviewMs.length} ready to release`
-                : 'No payments queued'
-          }
-          deltaTone={inReviewMs.length > 0 ? 'warn' : 'pos'}
-        />
+          label="Payment pipeline (queued)"
+          value={fmtCC(queuedCC)}
+          sub={`${queuedCount} milestone${queuedCount === 1 ? '' : 's'} between review and on-chain release`}
+        >
+          {/* Mini breakdown by sub-state */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, fontSize: 11 }}>
+            <PipelineRow
+              dot="var(--ms-review)"
+              label="In Review for Payment"
+              count={inReviewMs.length}
+              cc={inReviewCC}
+            />
+            <PipelineRow
+              dot="var(--ms-approved)"
+              label="Ready for Payment"
+              count={approvedReadyMs.length}
+              cc={approvedReadyCC}
+            />
+            <PipelineRow
+              dot="var(--ms-paying)"
+              label="Payment Ready to be Disbursed"
+              count={payingMs.length}
+              cc={payingCC}
+            />
+          </div>
+        </StatCard>
+
         <StatCard
-          label="Payments in progress"
+          label="In Progress"
           value={fmtCC(inProgressCC)}
-          sub={`${inProgressMs.length} milestone${inProgressMs.length === 1 ? '' : 's'} actively being delivered`}
+          sub={`${inProgressMs.length} milestone${inProgressMs.length === 1 ? '' : 's'} being delivered`}
         />
+
         <StatCard
           label="Recipients in period"
           value={recipients}
@@ -465,6 +478,44 @@ function fmtChartCC(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1).replace(/\.0$/, '')}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
   return String(n);
+}
+
+function PipelineRow({
+  dot,
+  label,
+  count,
+  cc,
+}: {
+  dot: string;
+  label: string;
+  count: number;
+  cc: number;
+}) {
+  const muted = count === 0;
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        color: muted ? 'var(--ink-4)' : 'var(--ink-2)',
+      }}
+    >
+      <span
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: 50,
+          background: muted ? 'var(--surface-3)' : dot,
+          flexShrink: 0,
+        }}
+      />
+      <span style={{ flex: 1, fontSize: 11 }}>{label}</span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+        {count} <span style={{ color: 'var(--ink-4)' }}>·</span> {fmtCC(cc)}
+      </span>
+    </div>
+  );
 }
 
 function aggregateByRecipient(payments: Payment[]): { applicant: string; amount_cc: number; count: number }[] {
