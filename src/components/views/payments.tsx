@@ -222,41 +222,45 @@ export default function PaymentsView({ data, period }: PaymentsViewProps) {
         </div>
         {topApproved.length === 0 ? (
           <div className="empty" style={{ padding: '20px 0' }}>No approved proposals yet.</div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {topApproved.map((r, i) => {
-              const max = topApproved[0].amount_cc;
-              return (
-                <div key={r.applicant} style={{ padding: 8 }}>
-                  <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ fontSize: 12.5 }}>
-                      <span style={{ color: 'var(--ink-4)', fontFamily: 'var(--font-mono)', marginRight: 6 }}>
-                        {i + 1}.
+        ) : (() => {
+          const totalApprovedCC = approved.reduce((s, p) => s + p.amount_cc, 0);
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              {topApproved.map((r, i) => {
+                const pct = totalApprovedCC > 0 ? (r.amount_cc / totalApprovedCC) * 100 : 0;
+                return (
+                  <div key={r.applicant} style={{ padding: 8 }}>
+                    <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4, gap: 8 }}>
+                      <span style={{ fontSize: 12.5, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span style={{ color: 'var(--ink-4)', fontFamily: 'var(--font-mono)', marginRight: 6 }}>
+                          {i + 1}.
+                        </span>
+                        <strong>{r.applicant}</strong>
+                        <span style={{ color: 'var(--ink-4)', marginLeft: 6, fontSize: 11 }}>
+                          ({r.count} project{r.count === 1 ? '' : 's'})
+                        </span>
                       </span>
-                      <strong>{r.applicant}</strong>
-                      <span style={{ color: 'var(--ink-4)', marginLeft: 6, fontSize: 11 }}>
-                        ({r.count} project{r.count === 1 ? '' : 's'})
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--ink-1)', whiteSpace: 'nowrap' }}>
+                        {fmtCC(r.amount_cc)}{' '}
+                        <span style={{ color: 'var(--ink-4)', fontSize: 11 }}>CC · {pct.toFixed(1)}%</span>
                       </span>
-                    </span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--ink-1)' }}>
-                      {fmtCC(r.amount_cc)} <span style={{ color: 'var(--ink-4)' }}>CC</span>
-                    </span>
+                    </div>
+                    <div style={{ height: 6, background: 'var(--surface-2)', borderRadius: 999, overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          width: `${pct}%`,
+                          height: '100%',
+                          background:
+                            'linear-gradient(90deg, var(--accent) 0%, color-mix(in oklch, var(--accent) 70%, var(--good)) 100%)',
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div style={{ height: 6, background: 'var(--surface-2)', borderRadius: 999, overflow: 'hidden' }}>
-                    <div
-                      style={{
-                        width: `${(r.amount_cc / max) * 100}%`,
-                        height: '100%',
-                        background:
-                          'linear-gradient(90deg, var(--accent) 0%, color-mix(in oklch, var(--accent) 70%, var(--good)) 100%)',
-                      }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Upcoming payments */}
