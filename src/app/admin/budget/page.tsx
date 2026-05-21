@@ -112,8 +112,20 @@ export default function BudgetAdmin() {
 
   const updateWizardTotal = (total: number) => {
     if (!yearWizard) return;
-    // Auto-split remainder if user just set the total
-    setYearWizard({ ...yearWizard, total_annual_cc: total });
+    const oldTotal = yearWizard.total_annual_cc;
+    const oldSum = yearWizard.q1_cc + yearWizard.q2_cc + yearWizard.q3_cc + yearWizard.q4_cc;
+    // If quarters were already in sync with the previous total, rescale them proportionally.
+    // Otherwise just update the total and let the user resplit manually.
+    if (oldTotal > 0 && oldSum === oldTotal && total > 0) {
+      const ratio = total / oldTotal;
+      const q1 = Math.round(yearWizard.q1_cc * ratio);
+      const q2 = Math.round(yearWizard.q2_cc * ratio);
+      const q3 = Math.round(yearWizard.q3_cc * ratio);
+      const q4 = total - q1 - q2 - q3; // absorb rounding
+      setYearWizard({ ...yearWizard, total_annual_cc: total, q1_cc: q1, q2_cc: q2, q3_cc: q3, q4_cc: q4 });
+    } else {
+      setYearWizard({ ...yearWizard, total_annual_cc: total });
+    }
   };
 
   const autoSplit = (mode: 'even' | 'frontloaded') => {
@@ -326,7 +338,7 @@ export default function BudgetAdmin() {
               </p>
             </div>
             <button
-              className="btn btn-ghost"
+              className="btn btn-primary"
               onClick={() => setYearWizard({
                 year: g.year,
                 total_annual_cc: g.total,
@@ -335,8 +347,9 @@ export default function BudgetAdmin() {
                 q3_cc: g.q3?.total_budget_cc || 0,
                 q4_cc: g.q4?.total_budget_cc || 0,
               })}
+              title="Change the annual total or any quarter — existing quarters will be updated"
             >
-              Edit year
+              Edit {g.year} budget
             </button>
           </div>
 
