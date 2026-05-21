@@ -1,7 +1,7 @@
 // Postgres equivalent of schema.ts — used in production on Neon.
 // Schema is otherwise identical to the SQLite version; column types adapted.
 
-import { pgTable, text, integer, bigint, boolean, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, boolean, timestamp } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 export const proposals = pgTable('proposals', {
@@ -23,7 +23,7 @@ export const proposals = pgTable('proposals', {
   raw_category: text('raw_category'),
   labels: text('labels'),
 
-  total_funding_cc: bigint('total_funding_cc', { mode: 'number' }).notNull().default(0),
+  total_funding_cc: integer('total_funding_cc').notNull().default(0),
   created_date: text('created_date'),
   updated_date: text('updated_date'),
   approved_date: text('approved_date'),
@@ -48,7 +48,7 @@ export const milestones = pgTable('milestones', {
   proposal_id: text('proposal_id').notNull().references(() => proposals.id, { onDelete: 'cascade' }),
   milestone_number: integer('milestone_number').notNull(),
   title: text('title'),
-  funding_cc: bigint('funding_cc', { mode: 'number' }).notNull().default(0),
+  funding_cc: integer('funding_cc').notNull().default(0),
   estimated_delivery: text('estimated_delivery'),
   estimated_delivery_date: text('estimated_delivery_date'),
   focus: text('focus'),
@@ -67,7 +67,7 @@ export const budget_periods = pgTable('budget_periods', {
   period_name: text('period_name').notNull().unique(),
   start_date: text('start_date').notNull(),
   end_date: text('end_date').notNull(),
-  total_budget_cc: bigint('total_budget_cc', { mode: 'number' }).notNull(),
+  total_budget_cc: integer('total_budget_cc').notNull(),
   notes: text('notes'),
   is_current: boolean('is_current').default(false),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -77,7 +77,7 @@ export const budget_periods = pgTable('budget_periods', {
 export const payments = pgTable('payments', {
   id: text('id').primaryKey(),
   milestone_id: text('milestone_id').notNull().references(() => milestones.id, { onDelete: 'cascade' }),
-  amount_cc: bigint('amount_cc', { mode: 'number' }).notNull(),
+  amount_cc: integer('amount_cc').notNull(),
   scheduled_date: text('scheduled_date'),
   released_date: text('released_date'),
   status: text('status').notNull().default('pending'),
