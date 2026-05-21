@@ -84,15 +84,15 @@ const BOARD_3_STATUS_MAP: Record<string, ProposalStatus> = {
   'incoming': 'submitted',
   'needs champion': 'submitted',
   'in review': 'tech-review',
-  'in review (champion assigned)': 'tech-review',
+  'in review (champion assigned)': 'champion-review',
   'champion assigned': 'champion-review',
   'needs review by core contributors': 'tech-review',
   'needs review by core contributors/security': 'tech-review',
-  'ready for vote': 'voting',
-  'voting live': 'voting',
+  'needs revision': 'tech-review',
+  'ready for vote': 'tech-review',  // queued for voting (not yet live)
+  'voting live': 'voting',           // active vote in progress
   voting: 'voting',
   approved: 'approved',
-  'needs revision': 'tech-review',
   declined: 'declined',
   rejected: 'declined',
 };

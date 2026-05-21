@@ -82,10 +82,9 @@ export function queryAppData(): AppData {
   }
   payments.sort((a, b) => b.released_at.getTime() - a.released_at.getTime());
 
-  // Voting queue
+  // Voting queue — all proposals in voting state (no artificial cap)
   const votingQueue: VotingProposal[] = proposals
     .filter((p) => p.status === 'voting')
-    .slice(0, 6)
     .map((p) => ({
       ...p,
       committee_votes: { approve: 0, decline: 0, abstain: 0 },

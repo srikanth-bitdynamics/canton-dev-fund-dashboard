@@ -84,18 +84,43 @@ export async function syncProposals(): Promise<SyncResult> {
     const pipeline = getPipelineLifecycles(lifecycles);
     const ledgerPRs = new Set((ledgerResult?.data.projects ?? []).map((p) => p.pr));
 
-    // If Board #3 is reachable, status from board takes precedence over PR labels
+    // Board #3 (when reachable) is the authoritative source for pipeline status.
+    // We DROP pipeline PRs that aren't tracked on Board #3 — those are stale,
+    // abandoned, or otherwise filtered out of the committee's view.
+    let pipelineToSync = pipeline;
     if (board3) {
       const board3Map = buildBoard3StatusMap(board3);
       console.log(`Board #3: ${board3Map.size} items with status`);
+      // Override status from board for tracked PRs
       for (const lc of pipeline) {
         const b = board3Map.get(lc.pr_number);
-        if (b) {
-          lc.derived_status = b.status;
-        }
+        if (b) lc.derived_status = b.status;
+      }
+      // Drop pipeline items NOT on Board #3 (they're stale / abandoned)
+      pipelineToSync = pipeline.filter((lc) => board3Map.has(lc.pr_number));
+      // Also clean up any DB rows for PRs that should no longer be in the pipeline
+      // (we'll do this via a deferred sweep below — see "stale pipeline cleanup")
+    }
+    pipeline_synced = upsertPipelineLifecycles(pipelineToSync, ledgerPRs);
+
+    // Stale cleanup: when Board #3 is the truth, remove DB rows for PRs that are
+    // neither on Board #3 nor in the ledger.
+    if (board3) {
+      const board3Map = buildBoard3StatusMap(board3);
+      const validPRs = new Set<number>([...board3Map.keys(), ...ledgerPRs]);
+      const stalePRs = db
+        .select()
+        .from(schema.proposals)
+        .where(eq(schema.proposals.in_repo, false))
+        .all()
+        .filter((p) => p.github_pr_number !== null && !validPRs.has(p.github_pr_number));
+      for (const stale of stalePRs) {
+        db.delete(schema.proposals).where(eq(schema.proposals.id, stale.id)).run();
+      }
+      if (stalePRs.length > 0) {
+        console.log(`Stale pipeline cleanup: removed ${stalePRs.length} PR(s) not on Board #3`);
       }
     }
-    pipeline_synced = upsertPipelineLifecycles(pipeline, ledgerPRs);
 
     // Board #5 overlay — when read:project granted, board state is authoritative for
     // milestone delivery + payment status. This OVERRIDES whatever the ledger said.
