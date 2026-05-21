@@ -18,6 +18,7 @@ export interface Milestone {
   amount_cc: number;
   due: Date;
   status: MilestoneStatus;
+  board_status?: string; // raw column name from Board #5 (e.g. "Payment under way")
 }
 
 export interface Proposal {

@@ -25,6 +25,14 @@ export default function PaymentsView({ data, period }: PaymentsViewProps) {
   const inProgressCC = inProgressMs.reduce((s, m) => s + m.amount_cc, 0);
   const totalDistributedAllTime = data.payments.reduce((s, p) => s + p.amount_cc, 0);
 
+  // Split in-review by Board #5 column (when populated)
+  const isPaymentUnderway = (m: { board_status?: string }) =>
+    !!m.board_status && /payment\s*under\s*way/i.test(m.board_status);
+  const paymentUnderwayMs = inReviewMs.filter(isPaymentUnderway);
+  const readyForReviewMs = inReviewMs.filter((m) => !isPaymentUnderway(m));
+  const paymentUnderwayCC = paymentUnderwayMs.reduce((s, m) => s + m.amount_cc, 0);
+  const readyForReviewCC = readyForReviewMs.reduce((s, m) => s + m.amount_cc, 0);
+
   // Disbursement trend — monthly buckets for the last 12 months
   const trend = buildMonthlyTrend(data.payments, 12);
   const trendValues = trend.map((t) => t.amount);
@@ -89,8 +97,18 @@ export default function PaymentsView({ data, period }: PaymentsViewProps) {
         <StatCard
           label="Payments in review"
           value={fmtCC(inReviewCC)}
-          sub={`${inReviewMs.length} milestone${inReviewMs.length === 1 ? '' : 's'} awaiting committee sign-off`}
-          delta={inReviewMs.length > 0 ? `${inReviewMs.length} ready to release` : 'No payments queued'}
+          sub={
+            paymentUnderwayMs.length > 0
+              ? `${readyForReviewMs.length} ready for review · ${paymentUnderwayMs.length} payment under way`
+              : `${inReviewMs.length} milestone${inReviewMs.length === 1 ? '' : 's'} awaiting committee sign-off`
+          }
+          delta={
+            paymentUnderwayMs.length > 0
+              ? `${fmtCC(readyForReviewCC)} need vote · ${fmtCC(paymentUnderwayCC)} paying`
+              : inReviewMs.length > 0
+                ? `${inReviewMs.length} ready to release`
+                : 'No payments queued'
+          }
           deltaTone={inReviewMs.length > 0 ? 'warn' : 'pos'}
         />
         <StatCard

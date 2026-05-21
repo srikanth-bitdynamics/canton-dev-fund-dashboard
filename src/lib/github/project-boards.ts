@@ -102,6 +102,8 @@ const BOARD_5_STATUS_MAP: Record<string, MilestoneStatus> = {
   'in progress': 'in-progress',
   'ready for evidence': 'in-progress',
   'ready for milestone review': 'in-review',
+  'payment under way': 'in-review',     // payment authorized, awaiting on-chain release
+  'payment underway': 'in-review',       // same, no-space variant
   'milestone approved': 'delivered',
   'payment released': 'delivered',
   done: 'delivered',
@@ -243,6 +245,7 @@ export interface Board5MilestoneInfo {
   issue_number: number;
   title: string;
   status: MilestoneStatus;
+  board_status: string;          // raw column name e.g. "Payment under way"
   estimate_cc: number | null;
   closed_at: string | null;
 }
@@ -255,6 +258,7 @@ export function getBoard5Milestones(items: Board5Item[]): Board5MilestoneInfo[] 
       issue_number: item.issue_number!,
       title: item.title,
       status: item.derived_status!,
+      board_status: item.board_status || '',
       estimate_cc: item.estimate_cc,
       closed_at: item.issue_closed_at,
     }));

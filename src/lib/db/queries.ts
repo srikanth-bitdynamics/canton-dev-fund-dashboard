@@ -34,6 +34,7 @@ export function queryAppData(): AppData {
       amount_cc: m.funding_cc,
       due,
       status: m.status as MilestoneStatus,
+      board_status: m.board_status || undefined,
     });
     milestonesByProposal.set(m.proposal_id, list);
   }

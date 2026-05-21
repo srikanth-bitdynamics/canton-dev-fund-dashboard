@@ -356,13 +356,73 @@ function applyBoard5Overlay(items: Board5MilestoneInfo[]): number {
   let count = 0;
   const now = new Date().toISOString();
 
+  // Cache proposals + their milestones for the title-based fallback
+  const allProposals = db.select().from(schema.proposals).all();
+  const allMilestones = db.select().from(schema.milestones).all();
+  const proposalByPR = new Map(
+    allProposals
+      .filter((p) => p.github_pr_number !== null)
+      .map((p) => [p.github_pr_number as number, p]),
+  );
+
+  // Helper: find DB milestone for a Board #5 item title like
+  // "Q2 Maintenance of Canton Open Source 48 April"
+  // Strategy: pull a PR-number candidate from the title, find that proposal,
+  // then match a milestone whose title or estimated_delivery contains the month name.
+  const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june',
+                  'july', 'august', 'september', 'october', 'november', 'december'];
+  const findByTitle = (boardTitle: string) => {
+    const lower = boardTitle.toLowerCase();
+    // Find a 2-4 digit number in the title that matches one of our PR numbers
+    const numMatches = [...boardTitle.matchAll(/\b(\d{2,4})\b/g)].map((m) => parseInt(m[1], 10));
+    let proposal;
+    for (const n of numMatches) {
+      if (proposalByPR.has(n)) {
+        proposal = proposalByPR.get(n);
+        break;
+      }
+    }
+    if (!proposal) return undefined;
+    // Month present in board title?
+    const month = MONTHS.find((m) => lower.includes(m));
+    if (!month) {
+      // No month — try matching by explicit "Milestone N" in title
+      const ms = boardTitle.match(/milestone\s+(\d+)/i);
+      if (ms) {
+        const n = parseInt(ms[1], 10);
+        return allMilestones.find(
+          (m) => m.proposal_id === proposal!.id && m.milestone_number === n,
+        );
+      }
+      return undefined;
+    }
+    // Match by month name in milestone title or estimated_delivery
+    return allMilestones.find(
+      (m) =>
+        m.proposal_id === proposal!.id &&
+        ((m.title || '').toLowerCase().includes(month) ||
+          (m.estimated_delivery || '').toLowerCase().includes(month)),
+    );
+  };
+
   for (const item of items) {
-    // Match the DB milestone by github_issue_number
-    const matched = db
+    // Match the DB milestone by github_issue_number first
+    let matched = db
       .select()
       .from(schema.milestones)
       .where(eq(schema.milestones.github_issue_number, item.issue_number))
       .get();
+    // Fallback: title-based PR-number + month matcher (for maintenance milestones)
+    if (!matched) {
+      matched = findByTitle(item.title);
+      // If we matched via fallback, record the issue number for next sync
+      if (matched) {
+        db.update(schema.milestones)
+          .set({ github_issue_number: item.issue_number, updated_at: now })
+          .where(eq(schema.milestones.id, matched.id))
+          .run();
+      }
+    }
     if (!matched) continue;
 
     const overlayStatus =
@@ -380,6 +440,7 @@ function applyBoard5Overlay(items: Board5MilestoneInfo[]): number {
     db.update(schema.milestones)
       .set({
         status: overlayStatus,
+        board_status: item.board_status,
         funding_cc: fundingFromBoard,
         payment_released_at: overlayStatus === 'delivered' ? item.closed_at || now : null,
         updated_at: now,
