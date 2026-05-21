@@ -199,7 +199,7 @@ export default function BudgetAdmin() {
                 <input
                   type="number"
                   min="0"
-                  step="1000000"
+                  step="1"
                   required
                   value={yearWizard.total_annual_cc}
                   onChange={(e) => updateWizardTotal(Number(e.target.value))}
@@ -223,7 +223,7 @@ export default function BudgetAdmin() {
                   <input
                     type="number"
                     min="0"
-                    step="1000000"
+                    step="1"
                     value={yearWizard[`${q}_cc`]}
                     onChange={(e) => setYearWizard({ ...yearWizard, [`${q}_cc`]: Number(e.target.value) })}
                     style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }}
