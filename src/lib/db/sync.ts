@@ -130,21 +130,57 @@ export async function syncProposals(): Promise<SyncResult> {
       board5_overlay_applied = await applyBoard5Overlay(board5Ms);
     }
 
-    // Parse funding from voting-stage PRs (so "Total ask this week" isn't 0)
-    const votingPRs = (await db
-      .select({ pr: schema.proposals.github_pr_number })
-      .from(schema.proposals)
-      .where(eq(schema.proposals.status, 'voting')))
-      .map((r) => r.pr)
-      .filter((n): n is number => n !== null && n > 0);
-    if (votingPRs.length > 0) {
-      const fundings = await fetchPrProposalFundings(votingPRs);
-      console.log(`Voting PR funding parsed: ${fundings.size}/${votingPRs.length}`);
-      for (const [pr, info] of fundings.entries()) {
-        if (info.total_funding_cc > 0) {
-          await db.update(schema.proposals)
-            .set({ total_funding_cc: info.total_funding_cc, title: info.title, updated_at: new Date().toISOString() })
-            .where(eq(schema.proposals.github_pr_number, pr));
+    // Parse funding for any pipeline-owned proposal still showing 0 CC. This
+    // covers voting PRs ("Total ask this week" KPI) AND merged-but-not-in-ledger
+    // approved PRs (e.g. PR-94, PR-130, PR-298 that were approved on Board #3
+    // but never added to the canonical YAML ledger).
+    //
+    // Pipeline-owned rows are identified by filename like `pr:%`; ledger-owned
+    // rows have proper filenames and their own funding from the ledger.
+    const pipelineRows = (await db
+      .select({
+        pr: schema.proposals.github_pr_number,
+        id: schema.proposals.id,
+        filename: schema.proposals.filename,
+        funding: schema.proposals.total_funding_cc,
+      })
+      .from(schema.proposals))
+      .filter((r) => r.filename.startsWith('pr:') && (r.funding ?? 0) === 0)
+      .map((r) => ({ pr: r.pr, id: r.id }))
+      .filter((r): r is { pr: number; id: string } => r.pr !== null && r.pr > 0);
+
+    if (pipelineRows.length > 0) {
+      const fundings = await fetchPrProposalFundings(pipelineRows.map((r) => r.pr));
+      console.log(`Pipeline PR funding parsed: ${fundings.size}/${pipelineRows.length}`);
+      for (const row of pipelineRows) {
+        const info = fundings.get(row.pr);
+        if (!info || info.total_funding_cc <= 0) continue;
+        const now = new Date().toISOString();
+        await db.update(schema.proposals)
+          .set({ total_funding_cc: info.total_funding_cc, title: info.title, updated_at: now })
+          .where(eq(schema.proposals.github_pr_number, row.pr));
+
+        // Also create milestone rows if the PR's markdown has them and we
+        // haven't already imported any for this proposal.
+        const existing = await db
+          .select({ id: schema.milestones.id })
+          .from(schema.milestones)
+          .where(eq(schema.milestones.proposal_id, row.id));
+        if (existing.length === 0 && info.milestones && info.milestones.length > 0) {
+          for (const m of info.milestones) {
+            await db.insert(schema.milestones).values({
+              id: `${row.id}-M${m.number}`,
+              proposal_id: row.id,
+              milestone_number: m.number,
+              title: m.title || `Milestone ${m.number}`,
+              funding_cc: m.funding_cc,
+              estimated_delivery: m.estimated_delivery,
+              focus: m.focus,
+              acceptance: m.acceptance,
+              status: 'planned',
+            }).onConflictDoNothing();
+          }
+          milestones_synced += info.milestones.length;
         }
       }
     }

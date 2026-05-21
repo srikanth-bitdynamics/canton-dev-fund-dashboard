@@ -5,6 +5,7 @@
 
 import { getOctokit, REPO_OWNER, REPO_NAME } from './client';
 import { parseProposal } from '@/lib/parser/proposal-parser';
+import type { ParsedMilestone } from '@/lib/parser/milestone-parser';
 
 interface PrFile {
   filename: string;
@@ -18,6 +19,7 @@ export interface PrProposalParse {
   title: string;
   total_funding_cc: number;
   milestone_count: number;
+  milestones: ParsedMilestone[];
 }
 
 /**
@@ -60,6 +62,7 @@ export async function fetchPrProposalFunding(pr_number: number): Promise<PrPropo
       title: parsed.title,
       total_funding_cc: parsed.total_funding_cc,
       milestone_count: parsed.milestones.length,
+      milestones: parsed.milestones,
     };
   } catch (e) {
     console.warn(`Failed to fetch funding for PR #${pr_number}:`, (e as Error).message);
