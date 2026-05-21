@@ -20,18 +20,6 @@ export default function LoginModal({ onClose, onLogin, mockMode }: LoginModalPro
       onLogin({ handle: 'demo-user', initials: 'DU', team: 'tech-ops-committee' });
       return;
     }
-    if (!process.env.NEXT_PUBLIC_AUTH_ENABLED && !window.location.search.includes('auth=1')) {
-      // Auth not configured yet — show helpful message
-      alert(
-        'GitHub OAuth not configured.\n\n' +
-          '1. Create an OAuth App at https://github.com/settings/developers\n' +
-          '2. Set callback URL: http://localhost:3000/api/auth/callback/github\n' +
-          '3. Add AUTH_GITHUB_ID + AUTH_GITHUB_SECRET to .env.local\n' +
-          '4. Restart the dev server\n\n' +
-          'Or use ?mock=1 to test with fake data + fake login.',
-      );
-      return;
-    }
     setLoading(true);
     await signIn('github', { callbackUrl: '/' });
   };
