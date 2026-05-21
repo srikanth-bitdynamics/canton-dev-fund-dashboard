@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import type { AppData, Period, Proposal, VotingProposal, ActivityItem } from '@/lib/types';
 import { fmtCC, fmtDate, relTime, statusMeta, milestoneStatusMeta, inRange, budgetForRange } from '@/lib/utils';
-import { IconCC, IconFilter, IconExport, IconCheck, IconX } from '@/components/ui/icons';
+import { IconCC, IconExport, IconCheck, IconX } from '@/components/ui/icons';
 import { Pill, StatCard, SegmentedBar, Sparkline, Donut, Chip } from '@/components/ui/primitives';
 
 /* ------------------------------------------------------------------ */
@@ -495,12 +495,15 @@ export default function OverviewView({ data, period, signedIn, openProposal }: O
           </p>
         </div>
         <div className="row">
-          <button className="btn btn-ghost">
+          <a
+            className="btn btn-ghost"
+            href={`/report?${period.from ? `from=${period.from.toISOString().slice(0, 10)}&` : ''}${period.to ? `to=${period.to.toISOString().slice(0, 10)}&` : ''}label=${encodeURIComponent(period.label)}`}
+            target="_blank"
+            rel="noreferrer"
+            title="Opens a printable executive report for the current period"
+          >
             <IconExport /> Export report
-          </button>
-          <button className="btn">
-            <IconFilter /> Filters
-          </button>
+          </a>
         </div>
       </div>
 
