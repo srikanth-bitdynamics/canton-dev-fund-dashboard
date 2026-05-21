@@ -130,9 +130,16 @@ export default function PaymentsView({ data, period }: PaymentsViewProps) {
         />
 
         <StatCard
-          label="Recipients in period"
-          value={recipients}
-          sub={`${recipientTotals.length} unique recipients all-time`}
+          label="Total Approved"
+          value={fmtCC(approved.reduce((s, p) => s + p.amount_cc, 0))}
+          sub={`${approved.length} approved project${approved.length === 1 ? '' : 's'} · all-time commitment`}
+          delta={(() => {
+            const committed = approved.reduce((s, p) => s + p.amount_cc, 0);
+            if (committed === 0) return 'No commitments yet';
+            const pct = Math.round((totalDistributedAllTime / committed) * 100);
+            return `${pct}% disbursed · ${fmtCC(committed - totalDistributedAllTime)} remaining`;
+          })()}
+          deltaTone="pos"
         />
       </div>
 
@@ -323,19 +330,22 @@ function buildMonthlyTrend(payments: Payment[], months: number): MonthBucket[] {
 
 function MonthlyBars({ data }: { data: MonthBucket[] }) {
   const max = Math.max(...data.map((d) => d.amount), 1);
-  // Pick "nice" Y-axis tick values (4 ticks)
   const ticks = niceTicks(max, 4);
   const chartMax = ticks[ticks.length - 1];
-  const yAxisWidth = 52;
-  const chartHeight = 180;
+  const Y_AXIS_W = 52;
+  const CHART_H = 180;
+  const X_LABEL_H = 22;
 
   return (
-    <div style={{ display: 'flex', height: chartHeight + 28, paddingTop: 8, paddingBottom: 4 }}>
-      {/* Y axis */}
+    // Outer flex row: [Y axis] [chart column]
+    // Chart column is a flex column: [bars area] [x labels row]
+    // No absolute positioning at the outer scope — everything scrolls together
+    <div style={{ display: 'flex', height: CHART_H + X_LABEL_H + 8, paddingTop: 8 }}>
+      {/* Y axis labels — positioned relative to its own container */}
       <div
         style={{
-          width: yAxisWidth,
-          height: chartHeight,
+          width: Y_AXIS_W,
+          height: CHART_H,
           position: 'relative',
           flexShrink: 0,
           borderRight: '1px solid var(--line)',
@@ -360,93 +370,92 @@ function MonthlyBars({ data }: { data: MonthBucket[] }) {
         ))}
       </div>
 
-      {/* Chart area */}
-      <div style={{ flex: 1, position: 'relative', height: chartHeight }}>
-        {/* Gridlines */}
-        {ticks.map((t) => (
+      {/* Chart column — bars on top, X labels directly below */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        {/* Bars area with gridlines */}
+        <div style={{ position: 'relative', height: CHART_H, width: '100%' }}>
+          {ticks.map((t) => (
+            <div
+              key={`grid-${t}`}
+              style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                bottom: `${(t / chartMax) * 100}%`,
+                height: 1,
+                background: t === 0 ? 'var(--line)' : 'var(--line-soft)',
+                opacity: t === 0 ? 1 : 0.5,
+              }}
+            />
+          ))}
           <div
-            key={`grid-${t}`}
             style={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              bottom: `${(t / chartMax) * 100}%`,
-              height: 1,
-              background: t === 0 ? 'var(--line)' : 'var(--line-soft)',
-              opacity: t === 0 ? 1 : 0.5,
+              display: 'flex',
+              alignItems: 'flex-end',
+              gap: 8,
+              height: '100%',
+              padding: '0 4px',
+              position: 'relative',
             }}
-          />
-        ))}
+          >
+            {data.map((b) => (
+              <div
+                key={b.label}
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  height: '100%',
+                  justifyContent: 'flex-end',
+                }}
+              >
+                <div
+                  title={`${b.label}: ${b.amount.toLocaleString()} CC · ${b.count} payment${b.count === 1 ? '' : 's'}`}
+                  style={{
+                    width: '100%',
+                    maxWidth: 36,
+                    height: `${(b.amount / chartMax) * 100}%`,
+                    background:
+                      b.amount > 0
+                        ? 'linear-gradient(180deg, var(--good) 0%, color-mix(in oklch, var(--good) 70%, transparent) 100%)'
+                        : 'transparent',
+                    border: b.amount === 0 ? '1px dashed var(--line)' : 'none',
+                    borderRadius: '4px 4px 0 0',
+                    minHeight: b.amount > 0 ? 2 : 0,
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
 
-        {/* Bars */}
+        {/* X axis labels — same flex container as bars, no absolute positioning */}
         <div
           style={{
             display: 'flex',
-            alignItems: 'flex-end',
             gap: 8,
-            height: '100%',
-            padding: '0 4px',
-            position: 'relative',
+            padding: '6px 4px 0',
+            height: X_LABEL_H,
+            alignItems: 'flex-start',
           }}
         >
           {data.map((b) => (
             <div
-              key={b.label}
+              key={`label-${b.label}`}
               style={{
                 flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                height: '100%',
-                justifyContent: 'flex-end',
+                fontSize: 10,
+                color: 'var(--ink-4)',
+                textAlign: 'center',
+                fontFamily: 'var(--font-mono)',
+                whiteSpace: 'nowrap',
               }}
             >
-              <div
-                title={`${b.label}: ${b.amount.toLocaleString()} CC · ${b.count} payment${b.count === 1 ? '' : 's'}`}
-                style={{
-                  width: '100%',
-                  maxWidth: 36,
-                  height: `${(b.amount / chartMax) * 100}%`,
-                  background:
-                    b.amount > 0
-                      ? 'linear-gradient(180deg, var(--good) 0%, color-mix(in oklch, var(--good) 70%, transparent) 100%)'
-                      : 'transparent',
-                  border: b.amount === 0 ? '1px dashed var(--line)' : 'none',
-                  borderRadius: '4px 4px 0 0',
-                  minHeight: b.amount > 0 ? 2 : 0,
-                }}
-              />
+              {b.label}
             </div>
           ))}
         </div>
-      </div>
-
-      {/* X labels overlay */}
-      <div
-        style={{
-          position: 'absolute',
-          left: yAxisWidth,
-          right: 18,
-          marginTop: chartHeight + 4,
-          display: 'flex',
-          gap: 8,
-          padding: '0 4px',
-        }}
-      >
-        {data.map((b) => (
-          <div
-            key={`label-${b.label}`}
-            style={{
-              flex: 1,
-              fontSize: 10,
-              color: 'var(--ink-4)',
-              textAlign: 'center',
-              fontFamily: 'var(--font-mono)',
-            }}
-          >
-            {b.label}
-          </div>
-        ))}
       </div>
     </div>
   );
