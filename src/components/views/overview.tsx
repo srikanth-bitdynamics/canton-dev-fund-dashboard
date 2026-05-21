@@ -616,14 +616,6 @@ export default function OverviewView({ data, period, signedIn, openProposal }: O
               <h3 className="card-title">Budget by category &mdash; {period.label}</h3>
               <p className="card-sub">Defined envelope vs. committed and distributed</p>
             </div>
-            <div className="row">
-              <button className="btn btn-ghost" style={{ fontSize: 11 }}>
-                Stacked
-              </button>
-              <button className="btn btn-ghost" style={{ fontSize: 11 }}>
-                Pareto
-              </button>
-            </div>
           </div>
           <CategoryBudgetChart data={data} approved={approvedInP} quarterBudget={defined} />
         </div>

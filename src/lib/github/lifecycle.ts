@@ -134,13 +134,15 @@ export function buildFilenameLifecycleMap(lifecycles: PRLifecycle[]): Map<string
 }
 
 /**
- * Returns lifecycles for PRs that have NOT been merged — these represent
- * proposals still in the pipeline (submitted, in review, voting, declined).
- * Each one touches at least one .md file in /proposals/ but the file is not
- * yet (or never will be) in the main branch.
+ * Returns lifecycles for proposal PRs that aren't owned by the ledger.
+ * Filter: PR must touch at least one .md file in /proposals/.
+ *
+ * Includes merged PRs too — some PRs are approved on Board #3 (and so should
+ * show as approved on the dashboard) but never made it into the YAML ledger.
+ * Downstream sync filters this set against Board #3 membership and drops any
+ * PR already in the ledger, so merged PRs that ARE in the ledger don't
+ * double-count.
  */
 export function getPipelineLifecycles(lifecycles: PRLifecycle[]): PRLifecycle[] {
-  return lifecycles.filter(
-    (lc) => !lc.pr_merged && lc.proposal_files.length > 0,
-  );
+  return lifecycles.filter((lc) => lc.proposal_files.length > 0);
 }
