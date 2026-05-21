@@ -94,8 +94,9 @@ export default function BudgetView({ data, period }: BudgetViewProps) {
           <div>
             <h3 className="card-title">Quarterly trend</h3>
             <p className="card-sub">
-              Each bar is the quarter&rsquo;s defined envelope (100%). Fill shows where the money is:
-              green = disbursed, blue = approved but not yet paid, gray = unallocated headroom.
+              The dark horizontal line marks each quarter&rsquo;s defined envelope (100%).
+              Bars fill from the bottom up: green = disbursed, blue = committed not yet paid.
+              When commitments exceed the envelope, the bar pushes past the line into the red over-budget zone.
             </p>
           </div>
           <div className="legend">
@@ -106,7 +107,10 @@ export default function BudgetView({ data, period }: BudgetViewProps) {
               <span className="legend-sw" style={{ background: 'var(--accent)' }} /> Committed (not yet paid)
             </span>
             <span className="legend-item">
-              <span className="legend-sw" style={{ background: 'var(--surface-3)' }} /> Headroom
+              <span className="legend-sw" style={{ borderTop: '2px solid var(--ink-2)', height: 1 }} /> Envelope
+            </span>
+            <span className="legend-item">
+              <span className="legend-sw" style={{ background: 'var(--warn)', opacity: 0.25 }} /> Over budget
             </span>
           </div>
         </div>
@@ -204,14 +208,19 @@ function QuarterlyEnvelopeChart({ totals }: { totals: QuarterTotal[] }) {
   return (
     <div style={{ display: 'flex', gap: 16, alignItems: 'stretch', minHeight: CHART_H + 80, padding: '12px 4px 0' }}>
       {totals.map((t) => {
-        // Three slices of the envelope, summing to 100%:
-        //   disbursed → committed-not-yet-paid → headroom
-        const env = Math.max(t.defined, 1);
-        const distPct = Math.min(100, (t.distributed / env) * 100);
-        const commPct = Math.min(100 - distPct, Math.max(0, ((t.committed - t.distributed) / env) * 100));
-        const headPct = Math.max(0, 100 - distPct - commPct);
-        const overCommitted = t.committed > t.defined;
-        const overByPct = overCommitted ? ((t.committed - t.defined) / env) * 100 : 0;
+        // Each quarter is independently scaled so 100% of the bar = the LARGER
+        // of (defined envelope, committed). That way an over-committed quarter
+        // physically extends past the envelope marker — you can SEE the breach.
+        const scaleMax = Math.max(t.defined, t.committed, 1);
+
+        // Heights as % of the bar (which spans 0..scaleMax)
+        const distPct = (t.distributed / scaleMax) * 100;
+        const commOnlyPct = Math.max(0, ((t.committed - t.distributed) / scaleMax) * 100);
+        const envelopePct = (t.defined / scaleMax) * 100; // horizontal marker line
+        const overCommitted = t.committed > t.defined && t.defined > 0;
+        // The portion of the committed stack that sits ABOVE the envelope (over-budget zone)
+        const overByPct = overCommitted ? ((t.committed - t.defined) / scaleMax) * 100 : 0;
+        const committedPctOfEnvelope = t.defined ? Math.round((t.committed / t.defined) * 100) : 0;
 
         return (
           <div
@@ -240,23 +249,42 @@ function QuarterlyEnvelopeChart({ totals }: { totals: QuarterTotal[] }) {
                 maxWidth: 84,
                 height: CHART_H,
                 position: 'relative',
-                display: 'flex',
-                flexDirection: 'column-reverse',
-                background: t.defined > 0 ? 'var(--surface-3)' : 'transparent',
+                background: 'var(--surface-3)',
                 border: `1px solid ${t.current ? 'var(--accent)' : 'var(--line)'}`,
                 borderRadius: 6,
-                overflow: 'hidden',
+                overflow: 'visible',
                 outline: t.current ? '2px solid var(--accent-bg)' : 'none',
                 outlineOffset: 1,
               }}
-              title={`${t.label}\nDefined: ${t.defined.toLocaleString()} CC\nCommitted: ${t.committed.toLocaleString()} CC\nDisbursed: ${t.distributed.toLocaleString()} CC`}
+              title={`${t.label}\nDefined: ${t.defined.toLocaleString()} CC\nCommitted: ${t.committed.toLocaleString()} CC (${committedPctOfEnvelope}% of envelope)\nDisbursed: ${t.distributed.toLocaleString()} CC`}
             >
-              {/* Disbursed (green) — bottom */}
+              {/* Over-budget zone — translucent red wash on the portion above the envelope */}
+              {overCommitted && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: `${envelopePct}%`,
+                    height: `${overByPct}%`,
+                    background: 'var(--warn-bg, rgba(220, 80, 60, 0.12))',
+                    borderTop: '1px dashed var(--warn)',
+                    pointerEvents: 'none',
+                  }}
+                />
+              )}
+
+              {/* Disbursed (green) — anchored to bottom */}
               {distPct > 0 && (
                 <div
                   style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
                     height: `${distPct}%`,
                     background: 'var(--good)',
+                    borderRadius: '0 0 5px 5px',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -269,12 +297,19 @@ function QuarterlyEnvelopeChart({ totals }: { totals: QuarterTotal[] }) {
                   {distPct >= 12 ? `${Math.round(distPct)}%` : ''}
                 </div>
               )}
-              {/* Committed-not-yet-paid (accent) — middle */}
-              {commPct > 0 && (
+
+              {/* Committed-not-yet-paid (accent) — stacked on top of disbursed */}
+              {commOnlyPct > 0 && (
                 <div
                   style={{
-                    height: `${commPct}%`,
-                    background: 'var(--accent)',
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: `${distPct}%`,
+                    height: `${commOnlyPct}%`,
+                    background: overCommitted
+                      ? 'linear-gradient(to top, var(--accent), var(--warn))'
+                      : 'var(--accent)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -284,41 +319,41 @@ function QuarterlyEnvelopeChart({ totals }: { totals: QuarterTotal[] }) {
                     fontWeight: 500,
                   }}
                 >
-                  {commPct >= 12 ? `${Math.round(commPct)}%` : ''}
+                  {commOnlyPct >= 12 ? `${committedPctOfEnvelope}% committed` : ''}
                 </div>
               )}
-              {/* Headroom (surface-3 from background) — top.
-                  The remaining space is already the bar background. We just put a
-                  centered label in the empty portion when there's room. */}
-              {headPct >= 18 && (
+
+              {/* Envelope marker line — the 100%-of-envelope reference */}
+              {t.defined > 0 && (
                 <div
                   style={{
                     position: 'absolute',
-                    top: 6,
-                    left: 0,
-                    right: 0,
-                    textAlign: 'center',
-                    fontSize: 10,
-                    color: 'var(--ink-4)',
-                    fontFamily: 'var(--font-mono)',
+                    left: -4,
+                    right: -4,
+                    bottom: `${envelopePct}%`,
+                    height: 0,
+                    borderTop: `2px ${overCommitted ? 'dashed' : 'solid'} ${overCommitted ? 'var(--warn)' : 'var(--ink-2)'}`,
+                    pointerEvents: 'none',
                   }}
+                  title={`Envelope: ${t.defined.toLocaleString()} CC`}
                 >
-                  {Math.round(headPct)}%
+                  <span
+                    style={{
+                      position: 'absolute',
+                      right: -2,
+                      top: -16,
+                      fontSize: 9,
+                      color: overCommitted ? 'var(--warn)' : 'var(--ink-3)',
+                      fontFamily: 'var(--font-mono)',
+                      background: 'var(--surface-1)',
+                      padding: '0 3px',
+                      borderRadius: 2,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {overCommitted ? `${committedPctOfEnvelope}%` : '100%'}
+                  </span>
                 </div>
-              )}
-              {/* Over-commitment indicator — stripe spilling over the top */}
-              {overCommitted && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: -4,
-                    left: -1,
-                    right: -1,
-                    height: 4,
-                    background: 'var(--warn)',
-                  }}
-                  title={`Over-committed by ${(t.committed - t.defined).toLocaleString()} CC (${Math.round(overByPct)}%)`}
-                />
               )}
             </div>
 
@@ -334,10 +369,12 @@ function QuarterlyEnvelopeChart({ totals }: { totals: QuarterTotal[] }) {
                 <div>
                   <span style={{ color: 'var(--good)' }}>{fmtChartCC(t.distributed)}</span>
                   {' / '}
-                  <span style={{ color: 'var(--accent)' }}>{fmtChartCC(t.committed)}</span>
+                  <span style={{ color: overCommitted ? 'var(--warn)' : 'var(--accent)' }}>
+                    {fmtChartCC(t.committed)}
+                  </span>
                 </div>
                 <div style={{ color: overCommitted ? 'var(--warn)' : 'var(--ink-4)' }}>
-                  {t.defined ? Math.round((t.committed / t.defined) * 100) : 0}% committed
+                  {committedPctOfEnvelope}% committed
                 </div>
               </div>
             </div>
