@@ -9,11 +9,12 @@
 import { getOctokit, REPO_OWNER } from './client';
 import type { MilestoneStatus, ProposalStatus } from '@/lib/types';
 
-const BOARD_QUERY = (projectNumber: number) => `
+const BOARD_QUERY = (projectNumber: number, cursor: string | null) => `
   query {
     organization(login: "${REPO_OWNER}") {
       projectV2(number: ${projectNumber}) {
-        items(first: 200) {
+        items(first: 100${cursor ? `, after: "${cursor}"` : ''}) {
+          pageInfo { hasNextPage endCursor }
           nodes {
             id
             fieldValues(first: 30) {
@@ -25,15 +26,15 @@ const BOARD_QUERY = (projectNumber: number) => `
                 }
                 ... on ProjectV2ItemFieldNumberValue {
                   number
-                  field { ... on ProjectV2NumberField { name } }
+                  field { ... on ProjectV2FieldCommon { name } }
                 }
                 ... on ProjectV2ItemFieldTextValue {
                   text
-                  field { ... on ProjectV2Field { name } }
+                  field { ... on ProjectV2FieldCommon { name } }
                 }
                 ... on ProjectV2ItemFieldDateValue {
                   date
-                  field { ... on ProjectV2Field { name } }
+                  field { ... on ProjectV2FieldCommon { name } }
                 }
               }
             }
@@ -59,6 +60,25 @@ const BOARD_QUERY = (projectNumber: number) => `
     }
   }
 `;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchAllBoardItems(projectNumber: number): Promise<any[]> {
+  const octokit = getOctokit();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const nodes: any[] = [];
+  let cursor: string | null = null;
+  // Safety: cap at 10 pages = 1000 items
+  for (let i = 0; i < 10; i++) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await octokit.graphql(BOARD_QUERY(projectNumber, cursor));
+    const page = data?.organization?.projectV2?.items;
+    if (!page) break;
+    nodes.push(...(page.nodes ?? []));
+    if (!page.pageInfo?.hasNextPage) break;
+    cursor = page.pageInfo.endCursor;
+  }
+  return nodes;
+}
 
 const BOARD_3_STATUS_MAP: Record<string, ProposalStatus> = {
   'incoming': 'submitted',
@@ -108,8 +128,7 @@ export interface Board5Item extends BoardItem {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractItems(data: any): BoardItem[] {
-  const nodes = data?.organization?.projectV2?.items?.nodes ?? [];
+function extractItems(nodes: any[]): BoardItem[] {
   const items: BoardItem[] = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const node of nodes as any[]) {
@@ -168,10 +187,8 @@ function extractItems(data: any): BoardItem[] {
 /** Fetch Project Board #3 (proposal lifecycle). Returns null on scope error. */
 export async function fetchBoard3(): Promise<Board3Item[] | null> {
   try {
-    const octokit = getOctokit();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data: any = await octokit.graphql(BOARD_QUERY(3));
-    return extractItems(data).map((item) => ({
+    const nodes = await fetchAllBoardItems(3);
+    return extractItems(nodes).map((item) => ({
       ...item,
       derived_status:
         item.board_status && BOARD_3_STATUS_MAP[item.board_status.toLowerCase().trim()]
@@ -192,10 +209,8 @@ export async function fetchBoard3(): Promise<Board3Item[] | null> {
 /** Fetch Project Board #5 (milestone delivery + Estimate field). Returns null on scope error. */
 export async function fetchBoard5(): Promise<Board5Item[] | null> {
   try {
-    const octokit = getOctokit();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data: any = await octokit.graphql(BOARD_QUERY(5));
-    return extractItems(data).map((item) => ({
+    const nodes = await fetchAllBoardItems(5);
+    return extractItems(nodes).map((item) => ({
       ...item,
       derived_status:
         item.board_status && BOARD_5_STATUS_MAP[item.board_status.toLowerCase().trim()]
