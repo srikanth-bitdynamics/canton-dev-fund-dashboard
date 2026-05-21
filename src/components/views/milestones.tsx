@@ -98,7 +98,7 @@ export default function MilestonesView({ data, period, openProposal }: Milestone
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {approved.map((p) => (
             <div key={p.id} className="row" style={{ gap: 12 }}>
-              <div style={{ width: 260, minWidth: 260, fontSize: 12 }}>
+              <div style={{ width: 300, minWidth: 300, fontSize: 12 }}>
                 <div
                   style={{
                     fontWeight: 500,
@@ -106,7 +106,24 @@ export default function MilestonesView({ data, period, openProposal }: Milestone
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                   }}
+                  title={p.title}
                 >
+                  {p.pr_number > 0 && (
+                    <a
+                      href={`https://github.com/canton-foundation/canton-dev-fund/pull/${p.pr_number}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 11,
+                        color: 'var(--ink-3)',
+                        marginRight: 6,
+                      }}
+                    >
+                      #{p.pr_number}
+                    </a>
+                  )}
                   {p.title}
                 </div>
                 <div style={{ color: 'var(--ink-3)', fontSize: 11 }}>{p.applicant}</div>
@@ -183,7 +200,25 @@ export default function MilestonesView({ data, period, openProposal }: Milestone
                     {m.id}
                   </td>
                   <td>
-                    <div style={{ fontSize: 12.5 }}>{m.proposal.title}</div>
+                    <div style={{ fontSize: 12.5 }}>
+                      {m.proposal.pr_number > 0 && (
+                        <a
+                          href={`https://github.com/canton-foundation/canton-dev-fund/pull/${m.proposal.pr_number}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: 11,
+                            color: 'var(--ink-3)',
+                            marginRight: 6,
+                          }}
+                        >
+                          #{m.proposal.pr_number}
+                        </a>
+                      )}
+                      {m.proposal.title}
+                    </div>
                     <div style={{ color: 'var(--ink-3)', fontSize: 11 }}>
                       {m.proposal.applicant}
                     </div>

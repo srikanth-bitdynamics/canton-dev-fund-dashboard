@@ -96,6 +96,22 @@ export function parseMilestones(content: string): {
     });
   }
 
+  // Merge: if any milestones came up with funding_cc = 0, try to fill in from the
+  // payment-schedule table (some proposals split title-headers from the funding table).
+  const missingFunding = milestones.some((m) => m.funding_cc === 0);
+  if (missingFunding) {
+    const tableMs = extractPaymentScheduleTable(content);
+    if (tableMs.length > 0) {
+      const byNum = new Map(tableMs.map((t) => [t.number, t]));
+      for (const m of milestones) {
+        if (m.funding_cc === 0) {
+          const t = byNum.get(m.number);
+          if (t && t.funding_cc > 0) m.funding_cc = t.funding_cc;
+        }
+      }
+    }
+  }
+
   const total_cc = milestones.reduce((s, m) => s + m.funding_cc, 0);
   return { milestones, total_cc };
 }

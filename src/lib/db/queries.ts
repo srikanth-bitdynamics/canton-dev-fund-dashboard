@@ -41,14 +41,8 @@ export function queryAppData(): AppData {
 
   const proposals: Proposal[] = proposalRows.map((p) => {
     const ms = milestonesByProposal.get(p.id) || [];
-    // For approved proposals with milestones, evolve status: first delivered, rest planned
-    if (p.status === 'approved' && ms.length > 0) {
-      ms[0].status = 'delivered';
-      for (let i = 1; i < ms.length; i++) {
-        if (i === 1 && ms.length > 2) ms[i].status = 'in-review';
-        else if (i < ms.length - 1) ms[i].status = 'in-progress';
-      }
-    }
+    // No synthetic status overrides — milestone status comes from sync (Board #5 when
+    // read:project is granted; closed GitHub milestone issues as fallback; otherwise planned)
     return {
       id: p.id,
       title: p.title,
@@ -65,15 +59,13 @@ export function queryAppData(): AppData {
     };
   });
 
-  // Payments — prefer real DB rows (from /admin release-payment); fall back to synthesizing
-  // from delivered milestones for proposals that haven't had a real payment recorded yet.
+  // Payments — DB-only (real payments recorded via admin release-payment OR auto-recorded
+  // from closed milestone issues during sync). No synthetic generation here.
   const paymentRows = db.select().from(schema.payments).all();
-  const milestonesWithRealPayment = new Set(paymentRows.map((p) => p.milestone_id));
   const proposalById = new Map(proposals.map((p) => [p.id, p]));
   const milestoneById = new Map(milestoneRows.map((m) => [m.id, m]));
 
   const payments: Payment[] = [];
-  // Real payments first
   for (const pr of paymentRows) {
     const m = milestoneById.get(pr.milestone_id);
     const p = m ? proposalById.get(m.proposal_id) : null;
@@ -87,24 +79,6 @@ export function queryAppData(): AppData {
       applicant: p?.applicant || '—',
     });
   }
-  // Synthesized payments for delivered milestones without a real payment row
-  proposals.filter((p) => p.status === 'approved').forEach((p) => {
-    p.milestones.forEach((m) => {
-      if (m.status === 'delivered' && !milestonesWithRealPayment.has(m.id)) {
-        const released = new Date(m.due);
-        released.setDate(released.getDate() - 7);
-        payments.push({
-          proposal_id: p.id,
-          proposal_title: p.title,
-          milestone_id: m.id,
-          amount_cc: m.amount_cc,
-          released_at: released,
-          tx: '(synthetic — no tx recorded)',
-          applicant: p.applicant,
-        });
-      }
-    });
-  });
   payments.sort((a, b) => b.released_at.getTime() - a.released_at.getTime());
 
   // Voting queue

@@ -37,7 +37,7 @@ export async function POST(req: Request) {
   if (shouldSync) {
     // Fire and forget — webhooks should respond fast
     syncProposals()
-      .then((r) => console.log('Webhook sync:', r.proposals_synced, 'proposals'))
+      .then((r) => console.log('Webhook sync:', r.approved_synced, 'approved,', r.pipeline_synced, 'pipeline'))
       .catch((e) => console.error('Webhook sync failed:', e));
   }
 
