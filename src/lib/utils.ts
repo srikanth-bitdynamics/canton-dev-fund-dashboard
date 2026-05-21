@@ -97,13 +97,12 @@ export function inRange(date: Date | string | null, from: Date | null, to: Date 
 }
 
 export function defaultPeriod(): Period {
-  const TODAY = new Date();
-  const y = TODAY.getFullYear();
-  const q = Math.floor(TODAY.getMonth() / 3);
+  // Default to "All time" so KPIs reflect the full program at a glance.
+  // User can narrow via the period picker.
   return {
-    from: startOfQuarter(y, q),
-    to: endOfQuarter(y, q),
-    label: `Q${q + 1} ${y}`,
-    preset: 'quarter',
+    from: null,
+    to: null,
+    label: 'All time',
+    preset: 'all',
   };
 }

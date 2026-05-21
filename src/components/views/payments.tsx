@@ -2,6 +2,7 @@
 
 import type { AppData, Period, Payment, Milestone, Proposal } from '@/lib/types';
 import { fmtCC, fmtDate, inRange } from '@/lib/utils';
+import { normalizeCompany } from '@/lib/applicant';
 import { IconExport, IconSearch, IconCC } from '@/components/ui/icons';
 import { StatCard, Sparkline } from '@/components/ui/primitives';
 
@@ -37,9 +38,25 @@ export default function PaymentsView({ data, period }: PaymentsViewProps) {
   const trend = buildMonthlyTrend(data.payments, 12);
   const trendValues = trend.map((t) => t.amount);
 
-  // Top recipients (all-time, not just period — gives full picture of concentration)
+  // Top recipients by PAYMENTS (received CC) — grouped by normalized company
   const recipientTotals = aggregateByRecipient(data.payments);
   const topRecipients = recipientTotals.slice(0, 5);
+
+  // Top recipients by APPROVED CC (committed but not necessarily paid) — grouped by company
+  const approvedByCompany = (() => {
+    const map = new Map<string, { amount_cc: number; count: number }>();
+    approved.forEach((p) => {
+      const key = normalizeCompany(p.applicant);
+      const e = map.get(key) || { amount_cc: 0, count: 0 };
+      e.amount_cc += p.amount_cc;
+      e.count += 1;
+      map.set(key, e);
+    });
+    return Array.from(map.entries())
+      .map(([applicant, v]) => ({ applicant, ...v }))
+      .sort((a, b) => b.amount_cc - a.amount_cc);
+  })();
+  const topApproved = approvedByCompany.slice(0, 8);
 
   // Upcoming payments — milestones due to deliver in next 30 days from approved proposals
   const now = new Date();
@@ -191,6 +208,55 @@ export default function PaymentsView({ data, period }: PaymentsViewProps) {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Top approved recipients by company — concentration of committed CC */}
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="card-head">
+          <div>
+            <h3 className="card-title">Top approved recipients (by company)</h3>
+            <p className="card-sub">
+              {approvedByCompany.length} unique companies · {fmtCC(approved.reduce((s, p) => s + p.amount_cc, 0))} approved total
+            </p>
+          </div>
+        </div>
+        {topApproved.length === 0 ? (
+          <div className="empty" style={{ padding: '20px 0' }}>No approved proposals yet.</div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {topApproved.map((r, i) => {
+              const max = topApproved[0].amount_cc;
+              return (
+                <div key={r.applicant} style={{ padding: 8 }}>
+                  <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ fontSize: 12.5 }}>
+                      <span style={{ color: 'var(--ink-4)', fontFamily: 'var(--font-mono)', marginRight: 6 }}>
+                        {i + 1}.
+                      </span>
+                      <strong>{r.applicant}</strong>
+                      <span style={{ color: 'var(--ink-4)', marginLeft: 6, fontSize: 11 }}>
+                        ({r.count} project{r.count === 1 ? '' : 's'})
+                      </span>
+                    </span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--ink-1)' }}>
+                      {fmtCC(r.amount_cc)} <span style={{ color: 'var(--ink-4)' }}>CC</span>
+                    </span>
+                  </div>
+                  <div style={{ height: 6, background: 'var(--surface-2)', borderRadius: 999, overflow: 'hidden' }}>
+                    <div
+                      style={{
+                        width: `${(r.amount_cc / max) * 100}%`,
+                        height: '100%',
+                        background:
+                          'linear-gradient(90deg, var(--accent) 0%, color-mix(in oklch, var(--accent) 70%, var(--good)) 100%)',
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Upcoming payments */}
@@ -528,12 +594,15 @@ function PipelineRow({
 }
 
 function aggregateByRecipient(payments: Payment[]): { applicant: string; amount_cc: number; count: number }[] {
+  // Group by normalized company name so "Wayne Collier, Digital Asset" and
+  // "Digital Asset" roll up to the same recipient.
   const map = new Map<string, { amount_cc: number; count: number }>();
   payments.forEach((p) => {
-    const e = map.get(p.applicant) || { amount_cc: 0, count: 0 };
+    const key = normalizeCompany(p.applicant);
+    const e = map.get(key) || { amount_cc: 0, count: 0 };
     e.amount_cc += p.amount_cc;
     e.count += 1;
-    map.set(p.applicant, e);
+    map.set(key, e);
   });
   return Array.from(map.entries())
     .map(([applicant, v]) => ({ applicant, ...v }))

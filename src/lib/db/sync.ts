@@ -21,6 +21,7 @@ import {
   type Board5MilestoneInfo,
 } from '@/lib/github/project-boards';
 import { fetchMilestoneIssues } from '@/lib/github/milestone-issues';
+import { fetchPrProposalFundings } from '@/lib/github/pr-proposal';
 
 export interface SyncResult {
   sync_id: string;
@@ -128,6 +129,27 @@ export async function syncProposals(): Promise<SyncResult> {
       const board5Ms = getBoard5Milestones(board5);
       console.log(`Board #5: ${board5Ms.length} milestone items`);
       board5_overlay_applied = applyBoard5Overlay(board5Ms);
+    }
+
+    // Parse funding from voting-stage PRs (so "Total ask this week" isn't 0)
+    const votingPRs = db
+      .select({ pr: schema.proposals.github_pr_number })
+      .from(schema.proposals)
+      .where(eq(schema.proposals.status, 'voting'))
+      .all()
+      .map((r) => r.pr)
+      .filter((n): n is number => n !== null && n > 0);
+    if (votingPRs.length > 0) {
+      const fundings = await fetchPrProposalFundings(votingPRs);
+      console.log(`Voting PR funding parsed: ${fundings.size}/${votingPRs.length}`);
+      for (const [pr, info] of fundings.entries()) {
+        if (info.total_funding_cc > 0) {
+          db.update(schema.proposals)
+            .set({ total_funding_cc: info.total_funding_cc, title: info.title, updated_at: new Date().toISOString() })
+            .where(eq(schema.proposals.github_pr_number, pr))
+            .run();
+        }
+      }
     }
 
     const duration_ms = Date.now() - start;
