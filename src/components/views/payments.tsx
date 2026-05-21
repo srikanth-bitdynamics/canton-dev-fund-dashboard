@@ -16,20 +16,14 @@ export default function PaymentsView({ data, period }: PaymentsViewProps) {
   const totalPaid = payments.reduce((s, p) => s + p.amount_cc, 0);
   const recipients = new Set(payments.map((p) => p.applicant)).size;
 
-  // Outstanding commitments — approved milestones that are NOT delivered yet
+  // Milestones across all approved
   const approved = data.proposals.filter((p) => p.status === 'approved');
-  const outstandingMilestones = approved.flatMap((p) =>
-    p.milestones.filter((m) => m.status !== 'delivered'),
-  );
-  const outstandingCC = outstandingMilestones.reduce((s, m) => s + m.amount_cc, 0);
-
-  // Pace vs plan: if period has a target, see what fraction released
-  // Heuristic until a real "planned schedule" exists: assume linear burn of total approved across the period
-  const totalCommittedAllTime = approved.reduce((s, p) => s + p.amount_cc, 0);
+  const allMs = approved.flatMap((p) => p.milestones);
+  const inReviewMs = allMs.filter((m) => m.status === 'in-review');
+  const inProgressMs = allMs.filter((m) => m.status === 'in-progress');
+  const inReviewCC = inReviewMs.reduce((s, m) => s + m.amount_cc, 0);
+  const inProgressCC = inProgressMs.reduce((s, m) => s + m.amount_cc, 0);
   const totalDistributedAllTime = data.payments.reduce((s, p) => s + p.amount_cc, 0);
-  const pacePct = totalCommittedAllTime > 0
-    ? Math.round((totalDistributedAllTime / totalCommittedAllTime) * 100)
-    : 0;
 
   // Disbursement trend — monthly buckets for the last 12 months
   const trend = buildMonthlyTrend(data.payments, 12);
@@ -74,7 +68,7 @@ export default function PaymentsView({ data, period }: PaymentsViewProps) {
         </div>
       </div>
 
-      {/* KPI strip — replaced Avg ticket / Largest with Outstanding + Pace */}
+      {/* KPI strip */}
       <div className="stat-grid">
         <StatCard
           label="Released in period"
@@ -93,18 +87,16 @@ export default function PaymentsView({ data, period }: PaymentsViewProps) {
           )}
         </StatCard>
         <StatCard
-          label="Outstanding commitments"
-          value={fmtCC(outstandingCC)}
-          sub={`${outstandingMilestones.length} approved milestones, unpaid`}
-          delta={outstandingCC > totalPaid * 10 ? 'High overhang' : 'Within range'}
-          deltaTone={outstandingCC > totalPaid * 10 ? 'warn' : 'pos'}
+          label="Payments in review"
+          value={fmtCC(inReviewCC)}
+          sub={`${inReviewMs.length} milestone${inReviewMs.length === 1 ? '' : 's'} awaiting committee sign-off`}
+          delta={inReviewMs.length > 0 ? `${inReviewMs.length} ready to release` : 'No payments queued'}
+          deltaTone={inReviewMs.length > 0 ? 'warn' : 'pos'}
         />
         <StatCard
-          label="Pace vs plan"
-          value={`${pacePct}%`}
-          sub={`Distributed / committed (all approved)`}
-          delta={pacePct < 25 ? 'Behind schedule' : pacePct < 75 ? 'On track' : 'Near complete'}
-          deltaTone={pacePct < 25 ? 'warn' : 'pos'}
+          label="Payments in progress"
+          value={fmtCC(inProgressCC)}
+          sub={`${inProgressMs.length} milestone${inProgressMs.length === 1 ? '' : 's'} actively being delivered`}
         />
         <StatCard
           label="Recipients in period"
@@ -300,28 +292,161 @@ function buildMonthlyTrend(payments: Payment[], months: number): MonthBucket[] {
 
 function MonthlyBars({ data }: { data: MonthBucket[] }) {
   const max = Math.max(...data.map((d) => d.amount), 1);
+  // Pick "nice" Y-axis tick values (4 ticks)
+  const ticks = niceTicks(max, 4);
+  const chartMax = ticks[ticks.length - 1];
+  const yAxisWidth = 52;
+  const chartHeight = 180;
+
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 140, padding: '8px 0 16px', position: 'relative' }}>
-      {data.map((b) => (
-        <div key={b.label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%' }}>
-          <div style={{ flex: 1, width: '100%', display: 'flex', alignItems: 'flex-end' }}>
-            <div
-              title={`${b.label}: ${b.amount.toLocaleString()} CC · ${b.count} payments`}
-              style={{
-                width: '100%',
-                height: `${(b.amount / max) * 100}%`,
-                background: b.amount > 0 ? 'var(--good)' : 'var(--surface-3)',
-                borderRadius: '3px 3px 0 0',
-                minHeight: 2,
-                transition: 'background .15s',
-              }}
-            />
+    <div style={{ display: 'flex', height: chartHeight + 28, paddingTop: 8, paddingBottom: 4 }}>
+      {/* Y axis */}
+      <div
+        style={{
+          width: yAxisWidth,
+          height: chartHeight,
+          position: 'relative',
+          flexShrink: 0,
+          borderRight: '1px solid var(--line)',
+        }}
+      >
+        {ticks.map((t) => (
+          <div
+            key={t}
+            style={{
+              position: 'absolute',
+              right: 8,
+              bottom: `${(t / chartMax) * 100}%`,
+              transform: 'translateY(50%)',
+              fontSize: 10,
+              color: 'var(--ink-4)',
+              fontFamily: 'var(--font-mono)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {fmtChartCC(t)}
           </div>
-          <div style={{ fontSize: 9.5, color: 'var(--ink-4)', textAlign: 'center', whiteSpace: 'nowrap' }}>{b.label}</div>
+        ))}
+      </div>
+
+      {/* Chart area */}
+      <div style={{ flex: 1, position: 'relative', height: chartHeight }}>
+        {/* Gridlines */}
+        {ticks.map((t) => (
+          <div
+            key={`grid-${t}`}
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: `${(t / chartMax) * 100}%`,
+              height: 1,
+              background: t === 0 ? 'var(--line)' : 'var(--line-soft)',
+              opacity: t === 0 ? 1 : 0.5,
+            }}
+          />
+        ))}
+
+        {/* Bars */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'flex-end',
+            gap: 8,
+            height: '100%',
+            padding: '0 4px',
+            position: 'relative',
+          }}
+        >
+          {data.map((b) => (
+            <div
+              key={b.label}
+              style={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                height: '100%',
+                justifyContent: 'flex-end',
+              }}
+            >
+              <div
+                title={`${b.label}: ${b.amount.toLocaleString()} CC · ${b.count} payment${b.count === 1 ? '' : 's'}`}
+                style={{
+                  width: '100%',
+                  maxWidth: 36,
+                  height: `${(b.amount / chartMax) * 100}%`,
+                  background:
+                    b.amount > 0
+                      ? 'linear-gradient(180deg, var(--good) 0%, color-mix(in oklch, var(--good) 70%, transparent) 100%)'
+                      : 'transparent',
+                  border: b.amount === 0 ? '1px dashed var(--line)' : 'none',
+                  borderRadius: '4px 4px 0 0',
+                  minHeight: b.amount > 0 ? 2 : 0,
+                }}
+              />
+            </div>
+          ))}
         </div>
-      ))}
+      </div>
+
+      {/* X labels overlay */}
+      <div
+        style={{
+          position: 'absolute',
+          left: yAxisWidth,
+          right: 18,
+          marginTop: chartHeight + 4,
+          display: 'flex',
+          gap: 8,
+          padding: '0 4px',
+        }}
+      >
+        {data.map((b) => (
+          <div
+            key={`label-${b.label}`}
+            style={{
+              flex: 1,
+              fontSize: 10,
+              color: 'var(--ink-4)',
+              textAlign: 'center',
+              fontFamily: 'var(--font-mono)',
+            }}
+          >
+            {b.label}
+          </div>
+        ))}
+      </div>
     </div>
   );
+}
+
+/** Pick "nice" round tick values for a chart axis. */
+function niceTicks(max: number, n: number): number[] {
+  if (max <= 0) return [0, 1];
+  const roughStep = max / (n - 1);
+  const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+  const normalized = roughStep / magnitude;
+  let niceStep: number;
+  if (normalized < 1.5) niceStep = 1 * magnitude;
+  else if (normalized < 3) niceStep = 2 * magnitude;
+  else if (normalized < 7) niceStep = 5 * magnitude;
+  else niceStep = 10 * magnitude;
+  const ticks: number[] = [];
+  let v = 0;
+  while (v <= max + niceStep / 2) {
+    ticks.push(v);
+    v += niceStep;
+  }
+  return ticks;
+}
+
+/** Compact CC formatter for chart axis labels. */
+function fmtChartCC(n: number): string {
+  if (n === 0) return '0';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1).replace(/\.0$/, '')}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
+  return String(n);
 }
 
 function aggregateByRecipient(payments: Payment[]): { applicant: string; amount_cc: number; count: number }[] {
