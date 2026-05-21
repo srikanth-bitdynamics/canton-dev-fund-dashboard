@@ -43,10 +43,6 @@ export default function BudgetView({ data, period }: BudgetViewProps) {
   });
   const thisYear = annualByYear.find((a) => a.isCurrent) || annualByYear[annualByYear.length - 1];
 
-  const max = Math.max(...totals.map((t) => Math.max(t.defined, t.committed, t.distributed)), 1);
-  const ticks = niceTicks(max, 4);
-  const chartMax = ticks[ticks.length - 1];
-
   return (
     <>
       <div className="page-head">
@@ -92,30 +88,30 @@ export default function BudgetView({ data, period }: BudgetViewProps) {
         </div>
       )}
 
-      {/* Quarterly trend — grouped bars with Y axis */}
+      {/* Quarterly trend — one envelope bar per quarter, filled bottom-up */}
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="card-head">
           <div>
             <h3 className="card-title">Quarterly trend</h3>
-            <p className="card-sub">Defined envelope, committed, and disbursed by quarter</p>
+            <p className="card-sub">
+              Each bar is the quarter&rsquo;s defined envelope (100%). Fill shows where the money is:
+              green = disbursed, blue = approved but not yet paid, gray = unallocated headroom.
+            </p>
           </div>
           <div className="legend">
             <span className="legend-item">
-              <span className="legend-sw" style={{ background: 'oklch(0.30 0.025 250)' }} />
-              {' '}Defined
+              <span className="legend-sw" style={{ background: 'var(--good)' }} /> Disbursed
             </span>
             <span className="legend-item">
-              <span className="legend-sw" style={{ background: 'var(--accent)' }} />
-              {' '}Committed
+              <span className="legend-sw" style={{ background: 'var(--accent)' }} /> Committed (not yet paid)
             </span>
             <span className="legend-item">
-              <span className="legend-sw" style={{ background: 'var(--good)' }} />
-              {' '}Disbursed
+              <span className="legend-sw" style={{ background: 'var(--surface-3)' }} /> Headroom
             </span>
           </div>
         </div>
 
-        <QuarterlyChart totals={totals} ticks={ticks} chartMax={chartMax} />
+        <QuarterlyEnvelopeChart totals={totals} />
       </div>
 
       {/* Category mix donut */}
@@ -127,69 +123,69 @@ export default function BudgetView({ data, period }: BudgetViewProps) {
         <CategoryMix data={data} />
       </div>
 
-      {/* Per-quarter breakdown — full width so the numbers have room */}
-      <div className="card">
-        <div className="card-head">
-          <div>
-            <h3 className="card-title">Per-quarter breakdown</h3>
-            <p className="card-sub">
-              Defined envelope vs. committed proposals and on-chain disbursements, by quarter.
-              {' '}<strong style={{ color: 'var(--ink-1)' }}>Headroom</strong> = defined − committed.
-            </p>
-          </div>
+      {/* Per-quarter breakdown */}
+      <div>
+        <div style={{ marginBottom: 10 }}>
+          <h3 className="card-title">Per-quarter breakdown</h3>
+          <p className="card-sub">
+            Defined envelope vs. committed proposals and on-chain disbursements, by quarter.
+            {' '}<strong style={{ color: 'var(--ink-1)' }}>Headroom</strong> = defined − committed.
+          </p>
         </div>
-        <table className="tbl">
-          <thead>
-            <tr>
-              <th style={{ width: 120 }}>Quarter</th>
-              <th style={{ textAlign: 'right' }}>Defined</th>
-              <th style={{ textAlign: 'right' }}>Committed</th>
-              <th style={{ textAlign: 'right' }}>Disbursed</th>
-              <th style={{ textAlign: 'right' }}>Committed %</th>
-              <th style={{ textAlign: 'right' }}>Headroom</th>
-            </tr>
-          </thead>
-          <tbody>
-            {totals.map((t) => {
-              const headroom = t.defined - t.committed;
-              const pct = t.defined ? Math.round((t.committed / t.defined) * 100) : 0;
-              return (
-                <tr key={t.id} className={t.current ? 'row' : ''}>
-                  <td>
-                    <strong>{t.label}</strong>
-                    {t.current && (
-                      <span style={{ color: 'var(--accent)', marginLeft: 6, fontSize: 11 }}>● now</span>
-                    )}
-                  </td>
-                  <td className="num">{fmtCC(t.defined)}</td>
-                  <td className="num" style={{ color: t.committed > t.defined ? 'var(--warn)' : undefined }}>
-                    {fmtCC(t.committed)}
-                  </td>
-                  <td className="num">{fmtCC(t.distributed)}</td>
-                  <td className="num" style={{ color: pct > 100 ? 'var(--warn)' : 'var(--ink-3)' }}>{pct}%</td>
-                  <td className="num" style={{ color: headroom < 0 ? 'var(--warn)' : 'var(--good)' }}>
-                    {headroom >= 0 ? fmtCC(headroom) : `−${fmtCC(Math.abs(headroom))}`}
-                  </td>
-                </tr>
-              );
-            })}
-            <tr style={{ borderTop: '2px solid var(--line)' }}>
-              <td><strong>Total</strong></td>
-              <td className="num"><strong>{fmtCC(totals.reduce((s, t) => s + t.defined, 0))}</strong></td>
-              <td className="num"><strong>{fmtCC(totals.reduce((s, t) => s + t.committed, 0))}</strong></td>
-              <td className="num"><strong>{fmtCC(totals.reduce((s, t) => s + t.distributed, 0))}</strong></td>
-              <td className="num"></td>
-              <td className="num"><strong>{fmtCC(totals.reduce((s, t) => s + t.defined - t.committed, 0))}</strong></td>
-            </tr>
-          </tbody>
-        </table>
+        <div className="tbl-wrap">
+          <table className="qbreak">
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left' }}>Quarter</th>
+                <th style={{ textAlign: 'right' }}>Defined</th>
+                <th style={{ textAlign: 'right' }}>Committed</th>
+                <th style={{ textAlign: 'right' }}>Disbursed</th>
+                <th style={{ textAlign: 'right' }}>Committed %</th>
+                <th style={{ textAlign: 'right' }}>Headroom</th>
+              </tr>
+            </thead>
+            <tbody>
+              {totals.map((t) => {
+                const headroom = t.defined - t.committed;
+                const pct = t.defined ? Math.round((t.committed / t.defined) * 100) : 0;
+                return (
+                  <tr key={t.id} className={t.current ? 'qbreak-current' : ''}>
+                    <td>
+                      <strong>{t.label}</strong>
+                      {t.current && (
+                        <span style={{ color: 'var(--accent)', marginLeft: 6, fontSize: 11 }}>● now</span>
+                      )}
+                    </td>
+                    <td className="num">{fmtCC(t.defined)}</td>
+                    <td className="num" style={{ color: t.committed > t.defined ? 'var(--warn)' : undefined }}>
+                      {fmtCC(t.committed)}
+                    </td>
+                    <td className="num">{fmtCC(t.distributed)}</td>
+                    <td className="num" style={{ color: pct > 100 ? 'var(--warn)' : 'var(--ink-3)' }}>{pct}%</td>
+                    <td className="num" style={{ color: headroom < 0 ? 'var(--warn)' : 'var(--good)' }}>
+                      {headroom >= 0 ? fmtCC(headroom) : `−${fmtCC(Math.abs(headroom))}`}
+                    </td>
+                  </tr>
+                );
+              })}
+              <tr className="qbreak-total">
+                <td><strong>Total</strong></td>
+                <td className="num"><strong>{fmtCC(totals.reduce((s, t) => s + t.defined, 0))}</strong></td>
+                <td className="num"><strong>{fmtCC(totals.reduce((s, t) => s + t.committed, 0))}</strong></td>
+                <td className="num"><strong>{fmtCC(totals.reduce((s, t) => s + t.distributed, 0))}</strong></td>
+                <td className="num">—</td>
+                <td className="num"><strong>{fmtCC(totals.reduce((s, t) => s + t.defined - t.committed, 0))}</strong></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/*  QuarterlyChart — grouped bars with Y axis + gridlines              */
+/*  QuarterlyEnvelopeChart — one bar per quarter, stacked bottom-up    */
 /* ------------------------------------------------------------------ */
 
 interface QuarterTotal {
@@ -202,152 +198,153 @@ interface QuarterTotal {
   current?: boolean;
 }
 
-function QuarterlyChart({
-  totals,
-  ticks,
-  chartMax,
-}: {
-  totals: QuarterTotal[];
-  ticks: number[];
-  chartMax: number;
-}) {
-  const Y_AXIS_W = 60;
-  const CHART_H = 220;
-  const X_LABEL_H = 36;
+function QuarterlyEnvelopeChart({ totals }: { totals: QuarterTotal[] }) {
+  const CHART_H = 260;
 
   return (
-    <div style={{ display: 'flex', height: CHART_H + X_LABEL_H + 10, paddingTop: 8 }}>
-      {/* Y axis */}
-      <div
-        style={{
-          width: Y_AXIS_W,
-          height: CHART_H,
-          position: 'relative',
-          flexShrink: 0,
-          borderRight: '1px solid var(--line)',
-        }}
-      >
-        {ticks.map((t) => (
-          <div
-            key={t}
-            style={{
-              position: 'absolute',
-              right: 8,
-              bottom: `${(t / chartMax) * 100}%`,
-              transform: 'translateY(50%)',
-              fontSize: 10,
-              color: 'var(--ink-4)',
-              fontFamily: 'var(--font-mono)',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {fmtChartCC(t)}
-          </div>
-        ))}
-      </div>
+    <div style={{ display: 'flex', gap: 16, alignItems: 'stretch', minHeight: CHART_H + 80, padding: '12px 4px 0' }}>
+      {totals.map((t) => {
+        // Three slices of the envelope, summing to 100%:
+        //   disbursed → committed-not-yet-paid → headroom
+        const env = Math.max(t.defined, 1);
+        const distPct = Math.min(100, (t.distributed / env) * 100);
+        const commPct = Math.min(100 - distPct, Math.max(0, ((t.committed - t.distributed) / env) * 100));
+        const headPct = Math.max(0, 100 - distPct - commPct);
+        const overCommitted = t.committed > t.defined;
+        const overByPct = overCommitted ? ((t.committed - t.defined) / env) * 100 : 0;
 
-      {/* Chart column */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        {/* Bars area with gridlines */}
-        <div style={{ position: 'relative', height: CHART_H }}>
-          {ticks.map((t) => (
-            <div
-              key={`grid-${t}`}
-              style={{
-                position: 'absolute',
-                left: 0,
-                right: 0,
-                bottom: `${(t / chartMax) * 100}%`,
-                height: 1,
-                background: t === 0 ? 'var(--line)' : 'var(--line-soft)',
-                opacity: t === 0 ? 1 : 0.5,
-              }}
-            />
-          ))}
+        return (
           <div
+            key={t.id}
             style={{
-              display: 'grid',
-              gridTemplateColumns: `repeat(${totals.length}, 1fr)`,
-              height: '100%',
-              gap: 12,
-              padding: '0 8px',
-              position: 'relative',
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 8,
+              opacity: t.inPeriod ? 1 : 0.55,
             }}
           >
-            {totals.map((t) => (
-              <div
-                key={t.id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'flex-end',
-                  justifyContent: 'center',
-                  gap: 6,
-                  height: '100%',
-                  opacity: t.inPeriod ? 1 : 0.5,
-                  background: t.current ? 'var(--accent-bg)' : 'transparent',
-                  borderRadius: 4,
-                  padding: '0 4px',
-                }}
-              >
-                <ChartBar value={t.defined} max={chartMax} color="oklch(0.30 0.025 250)" label="Defined" />
-                <ChartBar value={t.committed} max={chartMax} color="var(--accent)" label="Committed" />
-                <ChartBar value={t.distributed} max={chartMax} color="var(--good)" label="Disbursed" />
+            {/* Top label: defined envelope total */}
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', textAlign: 'center', minHeight: 28 }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--ink-1)', fontWeight: 500 }}>
+                {fmtChartCC(t.defined)}
               </div>
-            ))}
-          </div>
-        </div>
+              <div style={{ fontSize: 10, color: 'var(--ink-4)' }}>envelope</div>
+            </div>
 
-        {/* X axis labels */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${totals.length}, 1fr)`,
-            height: X_LABEL_H,
-            padding: '6px 8px 0',
-            gap: 12,
-          }}
-        >
-          {totals.map((t) => (
+            {/* The bar */}
             <div
-              key={`label-${t.id}`}
-              style={{ textAlign: 'center', fontSize: 11, color: 'var(--ink-3)' }}
+              style={{
+                width: '100%',
+                maxWidth: 84,
+                height: CHART_H,
+                position: 'relative',
+                display: 'flex',
+                flexDirection: 'column-reverse',
+                background: t.defined > 0 ? 'var(--surface-3)' : 'transparent',
+                border: `1px solid ${t.current ? 'var(--accent)' : 'var(--line)'}`,
+                borderRadius: 6,
+                overflow: 'hidden',
+                outline: t.current ? '2px solid var(--accent-bg)' : 'none',
+                outlineOffset: 1,
+              }}
+              title={`${t.label}\nDefined: ${t.defined.toLocaleString()} CC\nCommitted: ${t.committed.toLocaleString()} CC\nDisbursed: ${t.distributed.toLocaleString()} CC`}
             >
-              <div style={{ fontWeight: 500, color: 'var(--ink-2)' }}>{t.label}</div>
-              <div style={{ fontSize: 10, color: 'var(--ink-4)', marginTop: 2 }}>
-                {t.defined ? Math.round((t.committed / t.defined) * 100) : 0}% committed
+              {/* Disbursed (green) — bottom */}
+              {distPct > 0 && (
+                <div
+                  style={{
+                    height: `${distPct}%`,
+                    background: 'var(--good)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#fff',
+                    fontSize: 10,
+                    fontFamily: 'var(--font-mono)',
+                    fontWeight: 500,
+                  }}
+                >
+                  {distPct >= 12 ? `${Math.round(distPct)}%` : ''}
+                </div>
+              )}
+              {/* Committed-not-yet-paid (accent) — middle */}
+              {commPct > 0 && (
+                <div
+                  style={{
+                    height: `${commPct}%`,
+                    background: 'var(--accent)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#fff',
+                    fontSize: 10,
+                    fontFamily: 'var(--font-mono)',
+                    fontWeight: 500,
+                  }}
+                >
+                  {commPct >= 12 ? `${Math.round(commPct)}%` : ''}
+                </div>
+              )}
+              {/* Headroom (surface-3 from background) — top.
+                  The remaining space is already the bar background. We just put a
+                  centered label in the empty portion when there's room. */}
+              {headPct >= 18 && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 6,
+                    left: 0,
+                    right: 0,
+                    textAlign: 'center',
+                    fontSize: 10,
+                    color: 'var(--ink-4)',
+                    fontFamily: 'var(--font-mono)',
+                  }}
+                >
+                  {Math.round(headPct)}%
+                </div>
+              )}
+              {/* Over-commitment indicator — stripe spilling over the top */}
+              {overCommitted && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: -4,
+                    left: -1,
+                    right: -1,
+                    height: 4,
+                    background: 'var(--warn)',
+                  }}
+                  title={`Over-committed by ${(t.committed - t.defined).toLocaleString()} CC (${Math.round(overByPct)}%)`}
+                />
+              )}
+            </div>
+
+            {/* Bottom label: quarter name + status pills */}
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 12, color: 'var(--ink-1)', fontWeight: 500 }}>
+                {t.label}
+                {t.current && (
+                  <span style={{ color: 'var(--accent)', marginLeft: 4, fontSize: 11 }}>● now</span>
+                )}
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 3, lineHeight: 1.5 }}>
+                <div>
+                  <span style={{ color: 'var(--good)' }}>{fmtChartCC(t.distributed)}</span>
+                  {' / '}
+                  <span style={{ color: 'var(--accent)' }}>{fmtChartCC(t.committed)}</span>
+                </div>
+                <div style={{ color: overCommitted ? 'var(--warn)' : 'var(--ink-4)' }}>
+                  {t.defined ? Math.round((t.committed / t.defined) * 100) : 0}% committed
+                </div>
               </div>
             </div>
-          ))}
-        </div>
-      </div>
+          </div>
+        );
+      })}
     </div>
-  );
-}
-
-function ChartBar({
-  value,
-  max,
-  color,
-  label,
-}: {
-  value: number;
-  max: number;
-  color: string;
-  label: string;
-}) {
-  return (
-    <div
-      title={`${label}: ${value.toLocaleString()} CC`}
-      style={{
-        width: 18,
-        height: `${(value / max) * 100}%`,
-        background: color,
-        borderRadius: '3px 3px 0 0',
-        minHeight: value > 0 ? 2 : 0,
-        opacity: value === 0 ? 0.25 : 1,
-        border: value === 0 ? '1px dashed var(--line)' : undefined,
-      }}
-    />
   );
 }
 
@@ -418,25 +415,6 @@ function CategoryMix({ data }: { data: AppData }) {
 /* ------------------------------------------------------------------ */
 /*  Chart helpers                                                      */
 /* ------------------------------------------------------------------ */
-
-function niceTicks(max: number, n: number): number[] {
-  if (max <= 0) return [0, 1];
-  const roughStep = max / (n - 1);
-  const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
-  const normalized = roughStep / magnitude;
-  let niceStep: number;
-  if (normalized < 1.5) niceStep = 1 * magnitude;
-  else if (normalized < 3) niceStep = 2 * magnitude;
-  else if (normalized < 7) niceStep = 5 * magnitude;
-  else niceStep = 10 * magnitude;
-  const ticks: number[] = [];
-  let v = 0;
-  while (v <= max + niceStep / 2) {
-    ticks.push(v);
-    v += niceStep;
-  }
-  return ticks;
-}
 
 function fmtChartCC(n: number): string {
   if (n === 0) return '0';
