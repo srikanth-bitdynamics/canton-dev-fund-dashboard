@@ -255,72 +255,123 @@ function Pipeline({ proposals }: PipelineProps) {
   );
 }
 
-/* ---------- WeekStrip ---------- */
+/* ---------- UpcomingMilestones ---------- */
 
-interface WeekStripProps {
+interface UpcomingMilestonesProps {
   approved: Proposal[];
+  openProposal: (p: Proposal) => void;
 }
 
-interface WeekEvent {
-  proposal: Proposal;
-  milestone: Proposal['milestones'][number];
-}
-
-interface WeekCell {
-  day: string;
-  date: Date;
-  events: WeekEvent[];
-  isToday: boolean;
-}
-
-function WeekStrip({ approved }: WeekStripProps) {
+function UpcomingMilestones({ approved, openProposal }: UpcomingMilestonesProps) {
   const today = new Date();
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+  const todayMs = today.getTime();
 
-  const cells: WeekCell[] = days.map((d, i) => {
-    const date = new Date(monday);
-    date.setDate(monday.getDate() + i);
-    const events: WeekEvent[] = [];
-    approved.forEach((p) => {
-      p.milestones.forEach((m) => {
-        const due = new Date(m.due);
-        if (due.toDateString() === date.toDateString() && m.status !== 'delivered') {
-          events.push({ proposal: p, milestone: m });
-        }
-      });
+  // All non-delivered milestones across approved proposals, sorted by due date.
+  // Split into "due soon (next 60 days)" and "overdue".
+  const all: { proposal: Proposal; milestone: Proposal['milestones'][number]; daysOut: number }[] = [];
+  approved.forEach((p) => {
+    p.milestones.forEach((m) => {
+      if (m.status === 'delivered') return;
+      const dueMs = new Date(m.due).getTime();
+      const daysOut = Math.round((dueMs - todayMs) / (1000 * 60 * 60 * 24));
+      all.push({ proposal: p, milestone: m, daysOut });
     });
-    return { day: d, date, events, isToday: date.toDateString() === today.toDateString() };
   });
 
+  const overdue = all
+    .filter((x) => x.daysOut < 0)
+    .sort((a, b) => b.daysOut - a.daysOut); // closest-to-today first
+  const upcoming = all
+    .filter((x) => x.daysOut >= 0 && x.daysOut <= 60)
+    .sort((a, b) => a.daysOut - b.daysOut);
+
+  // Top 8 rows total — prioritise overdue, then upcoming
+  const rows = [...overdue.slice(0, 3), ...upcoming].slice(0, 8);
+
+  if (rows.length === 0) {
+    return (
+      <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--ink-3)', fontSize: 12 }}>
+        No milestones due in the next 60 days.
+      </div>
+    );
+  }
+
+  const fmtWhen = (d: number) => {
+    if (d < 0) return `${-d}d overdue`;
+    if (d === 0) return 'today';
+    if (d === 1) return 'tomorrow';
+    if (d <= 7) return `in ${d} days`;
+    return `in ${d} days`;
+  };
+
   return (
-    <div className="weekstrip">
-      {cells.map((c, i) => (
-        <div key={i} className={`weekday ${c.isToday ? 'today' : ''}`}>
-          <div className="weekday-head">
-            <span className="weekday-name">{c.day}</span>
-            <span className="weekday-num">{c.date.getDate()}</span>
-          </div>
-          {c.events.slice(0, 2).map((e, j) => (
-            <div
-              key={j}
-              className="weekday-event ms"
-              title={`${e.proposal.title} · ${e.milestone.id}`}
-            >
-              {e.milestone.id}
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {rows.map(({ proposal, milestone, daysOut }) => {
+        const tone =
+          daysOut < 0
+            ? 'var(--bad)'
+            : daysOut <= 7
+              ? 'var(--warn)'
+              : 'var(--ink-3)';
+        return (
+          <button
+            key={milestone.id}
+            onClick={() => openProposal(proposal)}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr auto',
+              gap: 6,
+              alignItems: 'center',
+              padding: '8px 4px',
+              borderBottom: '1px solid var(--line)',
+              background: 'transparent',
+              border: 'none',
+              borderBottomColor: 'var(--line)',
+              borderBottomStyle: 'solid',
+              borderBottomWidth: 1,
+              cursor: 'pointer',
+              textAlign: 'left',
+              width: '100%',
+            }}
+            title={`Open ${proposal.title}`}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+                <span
+                  className="mono"
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)' }}
+                >
+                  {milestone.id}
+                </span>
+                <span
+                  style={{
+                    color: 'var(--ink-1)',
+                    fontWeight: 500,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {milestone.title || proposal.title}
+                </span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
+                {proposal.title} · {fmtCC(milestone.amount_cc)} CC
+              </div>
             </div>
-          ))}
-          {c.events.length > 2 && (
-            <div className="weekday-event" style={{ color: 'var(--ink-3)' }}>
-              +{c.events.length - 2} more
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 11.5, color: tone, fontWeight: 500 }}>
+                {fmtWhen(daysOut)}
+              </div>
+              <div style={{ fontSize: 10.5, color: 'var(--ink-4)', fontFamily: 'var(--font-mono)' }}>
+                {fmtDate(milestone.due)}
+              </div>
             </div>
-          )}
-          {c.events.length === 0 && c.day === 'Fri' && (
-            <div className="weekday-event vote">Vote closes</div>
-          )}
-        </div>
-      ))}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -712,10 +763,10 @@ export default function OverviewView({ data, period, signedIn, openProposal }: O
           <div className="card-head">
             <div>
               <h3 className="card-title">Upcoming milestone deliveries</h3>
-              <p className="card-sub">Next 7 days</p>
+              <p className="card-sub">Next 60 days — click any row to open the proposal</p>
             </div>
           </div>
-          <WeekStrip approved={approved} />
+          <UpcomingMilestones approved={approved} openProposal={openProposal} />
         </div>
       </div>
     </>
