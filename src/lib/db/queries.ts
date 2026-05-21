@@ -14,10 +14,10 @@ const CATEGORIES: Category[] = [
 const STATUSES: ProposalStatus[] = ['submitted', 'champion-review', 'tech-review', 'voting', 'approved', 'declined'];
 
 /** Load all proposals + milestones from DB and shape into AppData for the dashboard views. */
-export function queryAppData(): AppData {
-  const proposalRows = db.select().from(schema.proposals).all();
-  const milestoneRows = db.select().from(schema.milestones).all();
-  const budgetRows = db.select().from(schema.budget_periods).all();
+export async function queryAppData(): Promise<AppData> {
+  const proposalRows = await db.select().from(schema.proposals);
+  const milestoneRows = await db.select().from(schema.milestones);
+  const budgetRows = await db.select().from(schema.budget_periods);
 
   const milestonesByProposal = new Map<string, Milestone[]>();
   for (const m of milestoneRows) {
@@ -62,7 +62,7 @@ export function queryAppData(): AppData {
 
   // Payments — DB-only (real payments recorded via admin release-payment OR auto-recorded
   // from closed milestone issues during sync). No synthetic generation here.
-  const paymentRows = db.select().from(schema.payments).all();
+  const paymentRows = await db.select().from(schema.payments);
   const proposalById = new Map(proposals.map((p) => [p.id, p]));
   const milestoneById = new Map(milestoneRows.map((m) => [m.id, m]));
 
@@ -92,7 +92,7 @@ export function queryAppData(): AppData {
     }));
 
   // Activity from recent sync_log + status changes (placeholder)
-  const recentSyncs = db.select().from(schema.sync_log).orderBy(desc(schema.sync_log.started_at)).limit(5).all();
+  const recentSyncs = await db.select().from(schema.sync_log).orderBy(desc(schema.sync_log.started_at)).limit(5);
   const activity: ActivityItem[] = recentSyncs.map((s, i) => ({
     id: i,
     kind: 'comment',
@@ -133,11 +133,12 @@ export function queryAppData(): AppData {
   };
 }
 
-export function getLatestSyncLog() {
-  return db.select().from(schema.sync_log).orderBy(desc(schema.sync_log.started_at)).limit(1).get();
+export async function getLatestSyncLog() {
+  const rows = await db.select().from(schema.sync_log).orderBy(desc(schema.sync_log.started_at)).limit(1);
+  return rows[0];
 }
 
-export function getProposalCount() {
-  const result = db.select({ count: schema.proposals.id }).from(schema.proposals).all();
+export async function getProposalCount() {
+  const result = await db.select({ count: schema.proposals.id }).from(schema.proposals);
   return result.length;
 }

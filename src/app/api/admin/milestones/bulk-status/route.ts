@@ -20,16 +20,14 @@ export async function POST(req: Request) {
     }
 
     // Snapshot current statuses for audit
-    const before = db
+    const before = await db
       .select({ id: schema.milestones.id, status: schema.milestones.status })
       .from(schema.milestones)
-      .where(inArray(schema.milestones.id, milestone_ids))
-      .all();
+      .where(inArray(schema.milestones.id, milestone_ids));
 
-    db.update(schema.milestones)
+    await db.update(schema.milestones)
       .set({ status, updated_at: new Date().toISOString() })
-      .where(inArray(schema.milestones.id, milestone_ids))
-      .run();
+      .where(inArray(schema.milestones.id, milestone_ids));
 
     await writeAudit({
       action: 'bulk_milestone_status',

@@ -65,14 +65,14 @@ export async function POST(req: Request) {
     for (const q of quarters) {
       const period_name = `Q${q.num} ${year}`;
       const isCurrent = year === currentYear && q.num === currentQuarter;
-      const existing = db
+      const existing = (await db
         .select()
         .from(schema.budget_periods)
         .where(eq(schema.budget_periods.period_name, period_name))
-        .get();
+        .limit(1))[0];
 
       if (existing) {
-        db.update(schema.budget_periods)
+        await db.update(schema.budget_periods)
           .set({
             start_date: q.start,
             end_date: q.end,
@@ -80,18 +80,17 @@ export async function POST(req: Request) {
             is_current: isCurrent,
             updated_at: new Date().toISOString(),
           })
-          .where(eq(schema.budget_periods.id, existing.id))
-          .run();
+          .where(eq(schema.budget_periods.id, existing.id));
         updated.push(period_name);
       } else {
-        db.insert(schema.budget_periods).values({
+        await db.insert(schema.budget_periods).values({
           id: `bp-${crypto.randomBytes(6).toString('hex')}`,
           period_name,
           start_date: q.start,
           end_date: q.end,
           total_budget_cc: Number(q.cc),
           is_current: isCurrent,
-        }).run();
+        });
         created.push(period_name);
       }
     }

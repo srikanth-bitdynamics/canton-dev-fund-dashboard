@@ -24,7 +24,7 @@ export async function writeAudit(entry: AuditEntry): Promise<void> {
   } catch {
     // No session — leave actor null (e.g. cron-triggered or unauthenticated dev call)
   }
-  db.insert(schema.audit_log).values({
+  await db.insert(schema.audit_log).values({
     id: `al-${crypto.randomBytes(6).toString('hex')}`,
     actor_login: actorLogin,
     actor_role: actorRole,
@@ -34,7 +34,7 @@ export async function writeAudit(entry: AuditEntry): Promise<void> {
     before_json: entry.before ? JSON.stringify(entry.before) : null,
     after_json: entry.after ? JSON.stringify(entry.after) : null,
     note: entry.note || null,
-  }).run();
+  });
 }
 
 /** Diff two objects, returning only the keys whose values differ. */

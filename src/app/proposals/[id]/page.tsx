@@ -15,25 +15,24 @@ interface PageProps {
 
 export async function generateMetadata({ params }: PageProps) {
   const { id } = await params;
-  const p = db.select().from(schema.proposals).where(eq(schema.proposals.id, id)).get();
+  const p = (await db.select().from(schema.proposals).where(eq(schema.proposals.id, id)).limit(1))[0];
   return { title: p ? `${p.title} · Canton Dev Fund` : 'Proposal not found' };
 }
 
 export default async function ProposalPublicPage({ params }: PageProps) {
   const { id } = await params;
-  const proposal = db.select().from(schema.proposals).where(eq(schema.proposals.id, id)).get();
+  const proposal = (await db.select().from(schema.proposals).where(eq(schema.proposals.id, id)).limit(1))[0];
   if (!proposal) notFound();
 
-  const milestones = db
+  const milestones = (await db
     .select()
     .from(schema.milestones)
-    .where(eq(schema.milestones.proposal_id, id))
-    .all()
+    .where(eq(schema.milestones.proposal_id, id)))
     .sort((a, b) => a.milestone_number - b.milestone_number);
 
   const milestoneIds = milestones.map((m) => m.id);
   const payments = milestoneIds.length
-    ? db.select().from(schema.payments).where(inArray(schema.payments.milestone_id, milestoneIds)).all()
+    ? await db.select().from(schema.payments).where(inArray(schema.payments.milestone_id, milestoneIds))
     : [];
   const paymentByMilestone = new Map(payments.map((p) => [p.milestone_id, p]));
 

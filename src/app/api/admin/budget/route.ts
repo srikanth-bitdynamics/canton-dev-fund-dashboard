@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { writeAudit } from '@/lib/db/audit';
 
 export async function GET() {
-  const rows = db.select().from(schema.budget_periods).all();
+  const rows = await db.select().from(schema.budget_periods);
   return NextResponse.json({ periods: rows });
 }
 
@@ -16,11 +16,11 @@ export async function POST(req: Request) {
     const recordId = id || `bp-${crypto.randomBytes(6).toString('hex')}`;
     const now = new Date().toISOString();
     const existing = id
-      ? db.select().from(schema.budget_periods).where(eq(schema.budget_periods.id, id)).get()
+      ? (await db.select().from(schema.budget_periods).where(eq(schema.budget_periods.id, id)).limit(1))[0]
       : null;
     if (existing) {
       const before = { period_name: existing.period_name, total_budget_cc: existing.total_budget_cc };
-      db.update(schema.budget_periods)
+      await db.update(schema.budget_periods)
         .set({
           period_name,
           start_date,
@@ -30,8 +30,7 @@ export async function POST(req: Request) {
           is_current: !!is_current,
           updated_at: now,
         })
-        .where(eq(schema.budget_periods.id, id))
-        .run();
+        .where(eq(schema.budget_periods.id, id));
       await writeAudit({
         action: 'update_budget',
         target_type: 'budget_period',
@@ -41,7 +40,7 @@ export async function POST(req: Request) {
         note: `Updated ${period_name}`,
       });
     } else {
-      db.insert(schema.budget_periods).values({
+      await db.insert(schema.budget_periods).values({
         id: recordId,
         period_name,
         start_date,
@@ -49,7 +48,7 @@ export async function POST(req: Request) {
         total_budget_cc: Number(total_budget_cc),
         notes,
         is_current: !!is_current,
-      }).run();
+      });
       await writeAudit({
         action: 'create_budget',
         target_type: 'budget_period',
@@ -69,7 +68,7 @@ export async function DELETE(req: Request) {
     const url = new URL(req.url);
     const id = url.searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
-    db.delete(schema.budget_periods).where(eq(schema.budget_periods.id, id)).run();
+    await db.delete(schema.budget_periods).where(eq(schema.budget_periods.id, id));
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 });

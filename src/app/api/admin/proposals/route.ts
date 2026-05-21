@@ -3,7 +3,7 @@ import { db, schema } from '@/lib/db/client';
 import { desc } from 'drizzle-orm';
 
 export async function GET() {
-  const proposals = db
+  const proposals = await db
     .select({
       id: schema.proposals.id,
       title: schema.proposals.title,
@@ -16,7 +16,6 @@ export async function GET() {
       updated_at: schema.proposals.updated_at,
     })
     .from(schema.proposals)
-    .orderBy(desc(schema.proposals.updated_at))
-    .all();
+    .orderBy(desc(schema.proposals.updated_at));
   return NextResponse.json({ proposals });
 }

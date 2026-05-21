@@ -21,11 +21,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       return NextResponse.json({ error: 'transaction_hash required' }, { status: 400 });
     }
 
-    const milestone = db
+    const milestone = (await db
       .select()
       .from(schema.milestones)
       .where(eq(schema.milestones.id, milestone_id))
-      .get();
+      .limit(1))[0];
     if (!milestone) {
       return NextResponse.json({ error: 'milestone not found' }, { status: 404 });
     }
@@ -35,7 +35,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
     // Create the payment row
     const payment_id = `pay-${crypto.randomBytes(6).toString('hex')}`;
-    db.insert(schema.payments).values({
+    await db.insert(schema.payments).values({
       id: payment_id,
       milestone_id,
       amount_cc,
@@ -44,17 +44,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       transaction_hash: body.transaction_hash,
       notes: body.notes ?? null,
       evidence_url: body.evidence_url ?? null,
-    }).run();
+    });
 
     // Mark the milestone delivered + payment released
-    db.update(schema.milestones)
+    await db.update(schema.milestones)
       .set({
         status: 'delivered',
         payment_released_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .where(eq(schema.milestones.id, milestone_id))
-      .run();
+      .where(eq(schema.milestones.id, milestone_id));
 
     await writeAudit({
       action: 'release_payment',

@@ -35,13 +35,12 @@ const OVERRIDABLE_FIELDS = [
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const proposal = db.select().from(schema.proposals).where(eq(schema.proposals.id, id)).get();
+  const proposal = (await db.select().from(schema.proposals).where(eq(schema.proposals.id, id)).limit(1))[0];
   if (!proposal) return NextResponse.json({ error: 'not found' }, { status: 404 });
-  const milestones = db
+  const milestones = (await db
     .select()
     .from(schema.milestones)
-    .where(eq(schema.milestones.proposal_id, id))
-    .all()
+    .where(eq(schema.milestones.proposal_id, id)))
     .sort((a, b) => a.milestone_number - b.milestone_number);
   return NextResponse.json({ proposal, milestones });
 }
@@ -50,7 +49,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const { id } = await ctx.params;
   const body: UpdatePayload = await req.json();
 
-  const existing = db.select().from(schema.proposals).where(eq(schema.proposals.id, id)).get();
+  const existing = (await db.select().from(schema.proposals).where(eq(schema.proposals.id, id)).limit(1))[0];
   if (!existing) return NextResponse.json({ error: 'not found' }, { status: 404 });
 
   // Build the patch — only include fields actually sent
@@ -81,18 +80,18 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   if (Object.keys(patch).length > 1) {
-    db.update(schema.proposals).set(patch).where(eq(schema.proposals.id, id)).run();
+    await db.update(schema.proposals).set(patch).where(eq(schema.proposals.id, id));
   }
 
   // Replace milestones if provided; also lock them so sync won't clobber
   let milestonesChanged = false;
   if (body.milestones) {
-    db.delete(schema.milestones).where(eq(schema.milestones.proposal_id, id)).run();
+    await db.delete(schema.milestones).where(eq(schema.milestones.proposal_id, id));
     for (const m of body.milestones) {
       const mid = m.id?.startsWith('new-')
         ? `${id}-M${m.milestone_number}-${crypto.randomBytes(3).toString('hex')}`
         : m.id || `${id}-M${m.milestone_number}-${crypto.randomBytes(3).toString('hex')}`;
-      db.insert(schema.milestones).values({
+      await db.insert(schema.milestones).values({
         id: mid,
         proposal_id: id,
         milestone_number: m.milestone_number,
@@ -100,13 +99,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         funding_cc: Number(m.funding_cc) || 0,
         estimated_delivery: m.estimated_delivery ?? null,
         status: m.status || 'planned',
-      }).run();
+      });
     }
     // Auto-lock milestones after any admin edit
-    db.update(schema.proposals)
+    await db.update(schema.proposals)
       .set({ milestones_locked: true, updated_at: new Date().toISOString() })
-      .where(eq(schema.proposals.id, id))
-      .run();
+      .where(eq(schema.proposals.id, id));
     milestonesChanged = true;
   }
 

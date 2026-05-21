@@ -6,11 +6,11 @@ import { fmtCC, fmtDate } from '@/lib/utils';
 export const dynamic = 'force-dynamic';
 
 export default async function AdminHome() {
-  const proposalCount = db.select().from(schema.proposals).all().length;
-  const approvedCount = db.select().from(schema.proposals).where(eq(schema.proposals.status, 'approved')).all().length;
-  const milestoneCount = db.select().from(schema.milestones).all().length;
-  const budgetCount = db.select().from(schema.budget_periods).all().length;
-  const lastSync = db.select().from(schema.sync_log).orderBy(desc(schema.sync_log.started_at)).limit(1).get();
+  const proposalCount = (await db.select().from(schema.proposals)).length;
+  const approvedCount = (await db.select().from(schema.proposals).where(eq(schema.proposals.status, 'approved'))).length;
+  const milestoneCount = (await db.select().from(schema.milestones)).length;
+  const budgetCount = (await db.select().from(schema.budget_periods)).length;
+  const lastSync = (await db.select().from(schema.sync_log).orderBy(desc(schema.sync_log.started_at)).limit(1))[0];
 
   return (
     <>

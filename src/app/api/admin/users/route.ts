@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { writeAudit } from '@/lib/db/audit';
 
 export async function GET() {
-  const rows = db.select().from(schema.users).all();
+  const rows = await db.select().from(schema.users);
   return NextResponse.json({ users: rows });
 }
 
@@ -16,17 +16,16 @@ export async function PATCH(req: Request) {
     if (!github_login || !['viewer', 'committee_member', 'admin'].includes(role)) {
       return NextResponse.json({ error: 'invalid input' }, { status: 400 });
     }
-    const existing = db
+    const existing = (await db
       .select()
       .from(schema.users)
       .where(eq(schema.users.github_login, github_login))
-      .get();
+      .limit(1))[0];
     if (existing) {
       const before = { role: existing.role };
-      db.update(schema.users)
+      await db.update(schema.users)
         .set({ role, updated_at: new Date().toISOString() })
-        .where(eq(schema.users.github_login, github_login))
-        .run();
+        .where(eq(schema.users.github_login, github_login));
       await writeAudit({
         action: 'change_role',
         target_type: 'user',
@@ -36,12 +35,12 @@ export async function PATCH(req: Request) {
         note: `${github_login}: ${before.role} → ${role}`,
       });
     } else {
-      db.insert(schema.users).values({
+      await db.insert(schema.users).values({
         id: `u-${crypto.randomBytes(6).toString('hex')}`,
         github_id: 0,
         github_login,
         role,
-      }).run();
+      });
       await writeAudit({
         action: 'grant_role',
         target_type: 'user',

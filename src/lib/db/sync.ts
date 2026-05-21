@@ -44,12 +44,12 @@ export async function syncProposals(): Promise<SyncResult> {
   const sync_id = genId('sync');
   const errors: { source: string; error: string }[] = [];
 
-  db.insert(schema.sync_log).values({
+  await db.insert(schema.sync_log).values({
     id: sync_id,
     sync_type: 'full_sync',
     source: 'ledger+prs',
     status: 'started',
-  }).run();
+  });
 
   let approved_synced = 0;
   let milestones_synced = 0;
@@ -75,7 +75,7 @@ export async function syncProposals(): Promise<SyncResult> {
       errors.push({ source: 'ledger', error: 'Ledger issue not reachable or could not parse YAML' });
     } else {
       ledgerUrl = ledgerResult.issue_url;
-      const result = upsertLedgerProjects(ledgerResult.data.projects, lifecycles, milestoneIssues);
+      const result = await upsertLedgerProjects(ledgerResult.data.projects, lifecycles, milestoneIssues);
       approved_synced = result.approved;
       milestones_synced = result.milestones;
       payments_synced = result.payments;
@@ -102,21 +102,20 @@ export async function syncProposals(): Promise<SyncResult> {
       // Also clean up any DB rows for PRs that should no longer be in the pipeline
       // (we'll do this via a deferred sweep below — see "stale pipeline cleanup")
     }
-    pipeline_synced = upsertPipelineLifecycles(pipelineToSync, ledgerPRs);
+    pipeline_synced = await upsertPipelineLifecycles(pipelineToSync, ledgerPRs);
 
     // Stale cleanup: when Board #3 is the truth, remove DB rows for PRs that are
     // neither on Board #3 nor in the ledger.
     if (board3) {
       const board3Map = buildBoard3StatusMap(board3);
       const validPRs = new Set<number>([...board3Map.keys(), ...ledgerPRs]);
-      const stalePRs = db
+      const stalePRs = (await db
         .select()
         .from(schema.proposals)
-        .where(eq(schema.proposals.in_repo, false))
-        .all()
+        .where(eq(schema.proposals.in_repo, false)))
         .filter((p) => p.github_pr_number !== null && !validPRs.has(p.github_pr_number));
       for (const stale of stalePRs) {
-        db.delete(schema.proposals).where(eq(schema.proposals.id, stale.id)).run();
+        await db.delete(schema.proposals).where(eq(schema.proposals.id, stale.id));
       }
       if (stalePRs.length > 0) {
         console.log(`Stale pipeline cleanup: removed ${stalePRs.length} PR(s) not on Board #3`);
@@ -128,15 +127,14 @@ export async function syncProposals(): Promise<SyncResult> {
     if (board5) {
       const board5Ms = getBoard5Milestones(board5);
       console.log(`Board #5: ${board5Ms.length} milestone items`);
-      board5_overlay_applied = applyBoard5Overlay(board5Ms);
+      board5_overlay_applied = await applyBoard5Overlay(board5Ms);
     }
 
     // Parse funding from voting-stage PRs (so "Total ask this week" isn't 0)
-    const votingPRs = db
+    const votingPRs = (await db
       .select({ pr: schema.proposals.github_pr_number })
       .from(schema.proposals)
-      .where(eq(schema.proposals.status, 'voting'))
-      .all()
+      .where(eq(schema.proposals.status, 'voting')))
       .map((r) => r.pr)
       .filter((n): n is number => n !== null && n > 0);
     if (votingPRs.length > 0) {
@@ -144,24 +142,22 @@ export async function syncProposals(): Promise<SyncResult> {
       console.log(`Voting PR funding parsed: ${fundings.size}/${votingPRs.length}`);
       for (const [pr, info] of fundings.entries()) {
         if (info.total_funding_cc > 0) {
-          db.update(schema.proposals)
+          await db.update(schema.proposals)
             .set({ total_funding_cc: info.total_funding_cc, title: info.title, updated_at: new Date().toISOString() })
-            .where(eq(schema.proposals.github_pr_number, pr))
-            .run();
+            .where(eq(schema.proposals.github_pr_number, pr));
         }
       }
     }
 
     const duration_ms = Date.now() - start;
-    db.update(schema.sync_log)
+    await db.update(schema.sync_log)
       .set({
         status: 'completed',
         items_processed: approved_synced + pipeline_synced,
         errors: errors.length ? JSON.stringify(errors) : null,
         completed_at: new Date().toISOString(),
       })
-      .where(eq(schema.sync_log.id, sync_id))
-      .run();
+      .where(eq(schema.sync_log.id, sync_id));
 
     return {
       sync_id,
@@ -175,14 +171,13 @@ export async function syncProposals(): Promise<SyncResult> {
       ledger_url: ledgerUrl,
     };
   } catch (e) {
-    db.update(schema.sync_log)
+    await db.update(schema.sync_log)
       .set({
         status: 'failed',
         errors: JSON.stringify([{ source: 'sync', error: (e as Error).message }]),
         completed_at: new Date().toISOString(),
       })
-      .where(eq(schema.sync_log.id, sync_id))
-      .run();
+      .where(eq(schema.sync_log.id, sync_id));
     throw e;
   }
 }
@@ -200,11 +195,11 @@ interface MilestoneIssueLite {
   milestone_number: number | null;
 }
 
-function upsertLedgerProjects(
+async function upsertLedgerProjects(
   projects: LedgerProject[],
   lifecycles: PRLifecycle[],
   milestoneIssues: MilestoneIssueLite[],
-): { approved: number; milestones: number; payments: number } {
+): Promise<{ approved: number; milestones: number; payments: number }> {
   const lifecycleByPR = new Map(lifecycles.map((lc) => [lc.pr_number, lc]));
   // Index milestone issues by (pr_number, milestone_number) for fast lookup
   const issueByKey = new Map<string, MilestoneIssueLite>();
@@ -220,7 +215,7 @@ function upsertLedgerProjects(
   for (const p of projects) {
     // Skip if this project's specific fields are locked by admin overrides;
     // otherwise upsert from ledger.
-    const existing = db.select().from(schema.proposals).where(eq(schema.proposals.id, p.id)).get();
+    const existing = (await db.select().from(schema.proposals).where(eq(schema.proposals.id, p.id)).limit(1))[0];
     const overrides: string[] = existing?.overrides ? JSON.parse(existing.overrides) : [];
     const isOverridden = (field: string) => overrides.includes(field);
 
@@ -261,7 +256,7 @@ function upsertLedgerProjects(
       synced_at: now,
     };
 
-    db.insert(schema.proposals)
+    await db.insert(schema.proposals)
       .values(values)
       .onConflictDoUpdate({
         target: schema.proposals.id,
@@ -279,15 +274,14 @@ function upsertLedgerProjects(
           updated_at: now,
           synced_at: now,
         } as Record<string, unknown>,
-      })
-      .run();
+      });
     approved++;
 
     // Respect milestones_locked
     if (existing?.milestones_locked) continue;
 
     // Replace milestones from ledger
-    db.delete(schema.milestones).where(eq(schema.milestones.proposal_id, p.id)).run();
+    await db.delete(schema.milestones).where(eq(schema.milestones.proposal_id, p.id));
     for (const m of p.milestones) {
       const mid = `${p.id}-M${m.n}`;
       const status = m.status === 'delivered' ? 'delivered'
@@ -295,7 +289,7 @@ function upsertLedgerProjects(
         : 'planned';
       // Link to the GitHub milestone-tracking issue if present (so Board #5 overlay can match)
       const issueLink = issueByKey.get(`${p.pr}:${m.n}`);
-      db.insert(schema.milestones).values({
+      await db.insert(schema.milestones).values({
         id: mid,
         proposal_id: p.id,
         milestone_number: m.n,
@@ -306,14 +300,14 @@ function upsertLedgerProjects(
         status,
         github_issue_number: issueLink?.issue_number ?? null,
         payment_released_at: m.released_date ?? null,
-      }).run();
+      });
       msCount++;
 
       // Create payment row for delivered milestones
       if (m.status === 'delivered') {
         // Delete any existing auto-recorded payment for this milestone, then re-insert
-        db.delete(schema.payments).where(eq(schema.payments.milestone_id, mid)).run();
-        db.insert(schema.payments).values({
+        await db.delete(schema.payments).where(eq(schema.payments.milestone_id, mid));
+        await db.insert(schema.payments).values({
           id: `pay-${mid}`,
           milestone_id: mid,
           amount_cc: m.amount_cc,
@@ -322,7 +316,7 @@ function upsertLedgerProjects(
           transaction_hash: m.tx ?? null,
           notes: 'From ledger',
           evidence_url: m.evidence ?? null,
-        }).run();
+        });
         payCount++;
       }
     }
@@ -331,10 +325,10 @@ function upsertLedgerProjects(
   return { approved, milestones: msCount, payments: payCount };
 }
 
-function upsertPipelineLifecycles(
+async function upsertPipelineLifecycles(
   lifecycles: PRLifecycle[],
   ledgerPRs: Set<number>,
-): number {
+): Promise<number> {
   let synced = 0;
   for (const lc of lifecycles) {
     // Skip PRs that are now approved (in ledger) — they're handled above
@@ -345,7 +339,7 @@ function upsertPipelineLifecycles(
     const titleClean = lc.pr_title.replace(/^Proposal:\s*/i, '').trim() || `PR #${lc.pr_number}`;
     const now = new Date().toISOString();
 
-    db.insert(schema.proposals)
+    await db.insert(schema.proposals)
       .values({
         id,
         filename: pseudoFilename,
@@ -375,8 +369,7 @@ function upsertPipelineLifecycles(
           updated_at: now,
           synced_at: now,
         } as Record<string, unknown>,
-      })
-      .run();
+      });
     synced++;
   }
   return synced;
@@ -399,13 +392,13 @@ function deriveQuarter(createdISO: string | null): string {
  *
  * Returns the number of milestones whose state was overridden.
  */
-function applyBoard5Overlay(items: Board5MilestoneInfo[]): number {
+async function applyBoard5Overlay(items: Board5MilestoneInfo[]): Promise<number> {
   let count = 0;
   const now = new Date().toISOString();
 
   // Cache proposals + their milestones for the title-based fallback
-  const allProposals = db.select().from(schema.proposals).all();
-  const allMilestones = db.select().from(schema.milestones).all();
+  const allProposals = await db.select().from(schema.proposals);
+  const allMilestones = await db.select().from(schema.milestones);
   const proposalByPR = new Map(
     allProposals
       .filter((p) => p.github_pr_number !== null)
@@ -454,20 +447,19 @@ function applyBoard5Overlay(items: Board5MilestoneInfo[]): number {
 
   for (const item of items) {
     // Match the DB milestone by github_issue_number first
-    let matched = db
+    let matched: typeof allMilestones[number] | undefined = (await db
       .select()
       .from(schema.milestones)
       .where(eq(schema.milestones.github_issue_number, item.issue_number))
-      .get();
+      .limit(1))[0];
     // Fallback: title-based PR-number + month matcher (for maintenance milestones)
     if (!matched) {
       matched = findByTitle(item.title);
       // If we matched via fallback, record the issue number for next sync
       if (matched) {
-        db.update(schema.milestones)
+        await db.update(schema.milestones)
           .set({ github_issue_number: item.issue_number, updated_at: now })
-          .where(eq(schema.milestones.id, matched.id))
-          .run();
+          .where(eq(schema.milestones.id, matched.id));
       }
     }
     if (!matched) continue;
@@ -481,7 +473,7 @@ function applyBoard5Overlay(items: Board5MilestoneInfo[]): number {
         ? item.estimate_cc
         : matched.funding_cc;
 
-    db.update(schema.milestones)
+    await db.update(schema.milestones)
       .set({
         status: overlayStatus,
         board_status: item.board_status,
@@ -489,18 +481,17 @@ function applyBoard5Overlay(items: Board5MilestoneInfo[]): number {
         payment_released_at: overlayStatus === 'delivered' ? item.closed_at || now : null,
         updated_at: now,
       })
-      .where(eq(schema.milestones.id, matched.id))
-      .run();
+      .where(eq(schema.milestones.id, matched.id));
 
     // If delivered → ensure a payment row exists
     if (overlayStatus === 'delivered') {
-      const existing = db
+      const existing = (await db
         .select()
         .from(schema.payments)
         .where(eq(schema.payments.milestone_id, matched.id))
-        .get();
+        .limit(1))[0];
       if (!existing) {
-        db.insert(schema.payments).values({
+        await db.insert(schema.payments).values({
           id: `pay-${matched.id}`,
           milestone_id: matched.id,
           amount_cc: fundingFromBoard,
@@ -508,13 +499,12 @@ function applyBoard5Overlay(items: Board5MilestoneInfo[]): number {
           status: 'released',
           notes: `Auto-recorded from Board #5 (status: ${item.status})`,
           evidence_url: `https://github.com/canton-foundation/canton-dev-fund/issues/${item.issue_number}`,
-        }).run();
+        });
       }
     } else {
       // Not delivered → remove any auto-recorded payment for this milestone
-      db.delete(schema.payments)
-        .where(eq(schema.payments.milestone_id, matched.id))
-        .run();
+      await db.delete(schema.payments)
+        .where(eq(schema.payments.milestone_id, matched.id));
     }
     count++;
   }

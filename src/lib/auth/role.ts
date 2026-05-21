@@ -27,11 +27,11 @@ export async function deriveRole(githubLogin: string, accessToken: string): Prom
   try {
     const { db, schema } = await import('@/lib/db/client');
     const { eq } = await import('drizzle-orm');
-    const dbUser = db
+    const dbUser = (await db
       .select()
       .from(schema.users)
       .where(eq(schema.users.github_login, githubLogin))
-      .get();
+      .limit(1))[0];
     if (dbUser?.role && ['viewer', 'committee_member', 'admin'].includes(dbUser.role)) {
       return dbUser.role as Role;
     }
