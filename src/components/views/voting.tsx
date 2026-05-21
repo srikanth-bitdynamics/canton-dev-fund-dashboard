@@ -12,6 +12,19 @@ interface VotingViewProps {
 }
 
 export default function VotingView({ data, openProposal }: VotingViewProps) {
+  // Headroom is computed against the current quarter envelope (from budget config).
+  // Fallback to the latest defined quarter if no quarter is flagged current.
+  const currentQuarter =
+    data.QUARTERS.find((q) => q.current) ||
+    data.QUARTERS[data.QUARTERS.length - 1];
+  const qEnvelope = currentQuarter?.defined ?? 0;
+  const qLabel = currentQuarter?.label ?? '—';
+  const qCommitted = data.proposals
+    .filter((p) => p.status === 'approved' && p.quarter === currentQuarter?.id)
+    .reduce((s, p) => s + p.amount_cc, 0);
+  const askThisWeek = data.votingQueue.reduce((s, p) => s + p.amount_cc, 0);
+  const headroom = qEnvelope - qCommitted - askThisWeek;
+
   return (
     <>
       <div className="page-head">
@@ -41,19 +54,16 @@ export default function VotingView({ data, openProposal }: VotingViewProps) {
       <div className="grid-3">
         <StatCard
           label="Total ask this week"
-          value={fmtCC(data.votingQueue.reduce((s, p) => s + p.amount_cc, 0))}
+          value={fmtCC(askThisWeek)}
           sub={`Across ${data.votingQueue.length} proposals`}
         />
         <StatCard
           label="Headroom if all approved"
-          value={fmtCC(
-            7_200_000 -
-              data.proposals
-                .filter((p) => p.status === 'approved' && p.quarter === '2026-Q2')
-                .reduce((s, p) => s + p.amount_cc, 0) -
-              data.votingQueue.reduce((s, p) => s + p.amount_cc, 0),
-          )}
-          sub="Q2 2026 envelope after this batch"
+          value={headroom >= 0 ? fmtCC(headroom) : `−${fmtCC(Math.abs(headroom))}`}
+          sub={qEnvelope > 0
+            ? `${qLabel} envelope ${fmtCC(qEnvelope)} − committed ${fmtCC(qCommitted)} − this batch`
+            : `No envelope defined for ${qLabel} (set in /admin/budget)`}
+          deltaTone={headroom < 0 ? 'warn' : 'pos'}
         />
         <StatCard label="Quorum target" value="5 / 8" sub="Tech & Ops Committee members must vote" />
       </div>

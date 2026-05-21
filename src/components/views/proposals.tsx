@@ -3,7 +3,30 @@
 import { useState, useMemo } from 'react';
 import type { AppData, Period, Proposal, ProposalStatus } from '@/lib/types';
 import { fmtCC, fmtDate, statusMeta, statusTone, inRange } from '@/lib/utils';
-import { IconExport, IconGitHub, IconSearch, IconChevron } from '@/components/ui/icons';
+import { IconExport, IconSearch, IconChevron } from '@/components/ui/icons';
+import { downloadCsv, toCsv, csvFilename } from '@/lib/csv';
+
+function exportProposalsCsv(rows: Proposal[]) {
+  const csv = toCsv(rows, [
+    { key: 'id', header: 'ID', get: (p) => p.id },
+    { key: 'pr', header: 'PR', get: (p) => (p.pr_number > 0 ? p.pr_number : '') },
+    { key: 'title', header: 'Title', get: (p) => p.title },
+    { key: 'applicant', header: 'Applicant', get: (p) => p.applicant },
+    { key: 'champion', header: 'Champion', get: (p) => p.champion },
+    { key: 'category', header: 'Category', get: (p) => p.category },
+    { key: 'status', header: 'Status', get: (p) => p.status },
+    { key: 'amount_cc', header: 'Amount (CC)', get: (p) => p.amount_cc },
+    { key: 'quarter', header: 'Quarter', get: (p) => p.quarter },
+    { key: 'submitted_at', header: 'Submitted', get: (p) => p.submitted_at },
+    { key: 'milestones', header: 'Milestones', get: (p) => p.milestones.length },
+    {
+      key: 'pr_url',
+      header: 'PR URL',
+      get: (p) => (p.pr_number > 0 ? `https://github.com/canton-foundation/canton-dev-fund/pull/${p.pr_number}` : ''),
+    },
+  ]);
+  downloadCsv(csvFilename('proposals'), csv);
+}
 import { Pill, Chip } from '@/components/ui/primitives';
 
 /* ------------------------------------------------------------------ */
@@ -104,11 +127,12 @@ export default function ProposalsView({ data, period, openProposal }: ProposalsV
           </p>
         </div>
         <div className="row">
-          <button className="btn btn-ghost">
-            <IconExport /> Export CSV
-          </button>
-          <button className="btn btn-primary">
-            <IconGitHub /> New from PR
+          <button
+            className="btn btn-ghost"
+            onClick={() => exportProposalsCsv(rows)}
+            title={`Download ${rows.length} rows as CSV`}
+          >
+            <IconExport /> Export CSV ({rows.length})
           </button>
         </div>
       </div>

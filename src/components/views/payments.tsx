@@ -5,6 +5,20 @@ import { fmtCC, fmtDate, inRange } from '@/lib/utils';
 import { normalizeCompany } from '@/lib/applicant';
 import { IconExport, IconSearch, IconCC } from '@/components/ui/icons';
 import { StatCard, Sparkline } from '@/components/ui/primitives';
+import { downloadCsv, toCsv, csvFilename } from '@/lib/csv';
+
+function exportPaymentsCsv(payments: Payment[]) {
+  const csv = toCsv(payments, [
+    { key: 'proposal_id', header: 'Proposal', get: (p) => p.proposal_id },
+    { key: 'proposal_title', header: 'Proposal title', get: (p) => p.proposal_title },
+    { key: 'milestone_id', header: 'Milestone', get: (p) => p.milestone_id },
+    { key: 'applicant', header: 'Recipient', get: (p) => p.applicant },
+    { key: 'amount_cc', header: 'Amount (CC)', get: (p) => p.amount_cc },
+    { key: 'released_at', header: 'Released', get: (p) => p.released_at },
+    { key: 'tx', header: 'Tx hash', get: (p) => p.tx },
+  ]);
+  downloadCsv(csvFilename('payments'), csv);
+}
 
 interface PaymentsViewProps {
   data: AppData;
@@ -86,10 +100,13 @@ export default function PaymentsView({ data, period }: PaymentsViewProps) {
           </p>
         </div>
         <div className="row">
-          <button className="btn btn-ghost">
-            <IconExport /> Export CSV
+          <button
+            className="btn btn-ghost"
+            onClick={() => exportPaymentsCsv(payments)}
+            title={`Download ${payments.length} payments as CSV`}
+          >
+            <IconExport /> Export CSV ({payments.length})
           </button>
-          <button className="btn btn-ghost">Sync with chain</button>
         </div>
       </div>
 

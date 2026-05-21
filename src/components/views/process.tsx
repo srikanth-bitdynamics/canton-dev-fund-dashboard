@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { IconExport, IconGitHub } from '@/components/ui/icons';
+import { IconGitHub } from '@/components/ui/icons';
 import { Pill } from '@/components/ui/primitives';
 
 /* ------------------------------------------------------------------ */
@@ -171,12 +171,14 @@ export default function ProcessView() {
           </p>
         </div>
         <div className="row">
-          <button className="btn btn-ghost">
-            <IconExport /> Download spec
-          </button>
-          <button className="btn btn-primary">
+          <a
+            className="btn btn-primary"
+            href="https://github.com/canton-foundation/canton-dev-fund/blob/main/PROPOSAL-TEMPLATE.md"
+            target="_blank"
+            rel="noreferrer"
+          >
             <IconGitHub /> Open PR with template
-          </button>
+          </a>
         </div>
       </div>
 

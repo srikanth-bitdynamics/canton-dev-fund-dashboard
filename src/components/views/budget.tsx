@@ -118,30 +118,42 @@ export default function BudgetView({ data, period }: BudgetViewProps) {
         <QuarterlyChart totals={totals} ticks={ticks} chartMax={chartMax} />
       </div>
 
-      {/* Bottom row: category mix + per-quarter table */}
-      <div className="grid-2">
-        <div className="card">
-          <div className="card-head">
-            <h3 className="card-title">Category mix YTD</h3>
-            <p className="card-sub">Approved CC by SIG category</p>
-          </div>
-          <CategoryMix data={data} />
+      {/* Category mix donut */}
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="card-head">
+          <h3 className="card-title">Category mix YTD</h3>
+          <p className="card-sub">Approved CC by SIG category</p>
         </div>
-        <div className="card">
-          <div className="card-head">
+        <CategoryMix data={data} />
+      </div>
+
+      {/* Per-quarter breakdown — full width so the numbers have room */}
+      <div className="card">
+        <div className="card-head">
+          <div>
             <h3 className="card-title">Per-quarter breakdown</h3>
+            <p className="card-sub">
+              Defined envelope vs. committed proposals and on-chain disbursements, by quarter.
+              {' '}<strong style={{ color: 'var(--ink-1)' }}>Headroom</strong> = defined − committed.
+            </p>
           </div>
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>Quarter</th>
-                <th style={{ textAlign: 'right' }}>Defined</th>
-                <th style={{ textAlign: 'right' }}>Committed</th>
-                <th style={{ textAlign: 'right' }}>Disbursed</th>
-              </tr>
-            </thead>
-            <tbody>
-              {totals.map((t) => (
+        </div>
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th style={{ width: 120 }}>Quarter</th>
+              <th style={{ textAlign: 'right' }}>Defined</th>
+              <th style={{ textAlign: 'right' }}>Committed</th>
+              <th style={{ textAlign: 'right' }}>Disbursed</th>
+              <th style={{ textAlign: 'right' }}>Committed %</th>
+              <th style={{ textAlign: 'right' }}>Headroom</th>
+            </tr>
+          </thead>
+          <tbody>
+            {totals.map((t) => {
+              const headroom = t.defined - t.committed;
+              const pct = t.defined ? Math.round((t.committed / t.defined) * 100) : 0;
+              return (
                 <tr key={t.id} className={t.current ? 'row' : ''}>
                   <td>
                     <strong>{t.label}</strong>
@@ -154,11 +166,23 @@ export default function BudgetView({ data, period }: BudgetViewProps) {
                     {fmtCC(t.committed)}
                   </td>
                   <td className="num">{fmtCC(t.distributed)}</td>
+                  <td className="num" style={{ color: pct > 100 ? 'var(--warn)' : 'var(--ink-3)' }}>{pct}%</td>
+                  <td className="num" style={{ color: headroom < 0 ? 'var(--warn)' : 'var(--good)' }}>
+                    {headroom >= 0 ? fmtCC(headroom) : `−${fmtCC(Math.abs(headroom))}`}
+                  </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              );
+            })}
+            <tr style={{ borderTop: '2px solid var(--line)' }}>
+              <td><strong>Total</strong></td>
+              <td className="num"><strong>{fmtCC(totals.reduce((s, t) => s + t.defined, 0))}</strong></td>
+              <td className="num"><strong>{fmtCC(totals.reduce((s, t) => s + t.committed, 0))}</strong></td>
+              <td className="num"><strong>{fmtCC(totals.reduce((s, t) => s + t.distributed, 0))}</strong></td>
+              <td className="num"></td>
+              <td className="num"><strong>{fmtCC(totals.reduce((s, t) => s + t.defined - t.committed, 0))}</strong></td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </>
   );
