@@ -1,0 +1,33 @@
+name: Hourly sync
+
+on:
+  schedule:
+    # Every hour at minute 17 (off-peak to avoid the top-of-hour rush)
+    - cron: '17 * * * *'
+  workflow_dispatch: # allow manual runs from the Actions tab
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger /api/sync on Vercel
+        env:
+          DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$DASHBOARD_URL" ]; then
+            echo "DASHBOARD_URL secret not set — skip"
+            exit 0
+          fi
+          # Use the same /api/cron/sync endpoint as Vercel cron;
+          # CRON_SECRET is required to authorize.
+          response=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${DASHBOARD_URL}/api/cron/sync")
+          echo "$response"
+          status=$(echo "$response" | grep -o 'HTTP_STATUS:[0-9]*' | cut -d: -f2)
+          if [ "$status" != "200" ]; then
+            echo "::error::Sync returned HTTP $status"
+            exit 1
+          fi

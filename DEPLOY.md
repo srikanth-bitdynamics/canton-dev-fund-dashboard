@@ -100,7 +100,24 @@ If you have admin access to `canton-foundation/canton-dev-fund`:
 5. Events: **Pull requests**, **Issues**, **Pushes**
 6. Save
 
-Real-time sync now triggers on every PR / issue / push event. The hourly Vercel cron (already configured in `vercel.json`) is a backup.
+Real-time sync now triggers on every PR / issue / push event. The daily Vercel cron (already configured in `vercel.json`) is a backup.
+
+---
+
+## 8. (Optional) Hourly sync via GitHub Actions
+
+Vercel's free Hobby plan caps cron jobs at **once per day**. The repo includes a GitHub Actions workflow (`.github/workflows/sync.yml`) that runs hourly — it's free for public repos.
+
+Set up two repo-level secrets at https://github.com/srikanth-bitdynamics/canton-dev-fund-dashboard/settings/secrets/actions:
+
+| Secret | Value |
+|---|---|
+| `DASHBOARD_URL` | `https://canton-dev-fund-dashboard.vercel.app` (no trailing slash) |
+| `CRON_SECRET` | A random hex string. Also add this **same value** as the `CRON_SECRET` env var in Vercel. |
+
+The workflow hits `/api/cron/sync` every hour at `:17`. Verify on the Actions tab: https://github.com/srikanth-bitdynamics/canton-dev-fund-dashboard/actions
+
+If you upgrade to Vercel Pro later, you can drop the Action and uncap the `vercel.json` cron to `0 * * * *` instead.
 
 ---
 
